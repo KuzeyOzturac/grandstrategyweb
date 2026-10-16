@@ -33,3 +33,7 @@ Only short opacity/transform transitions, cubic-bezier(.16,1,.3,1); reduced-moti
 Country dossiers and a 380px command panel replace the army command interface. National ribbon: treasury, living standards, construction, legitimacy. Navigation: Situation, Diplomacy, Military fronts, Production, Market, Politics, Journal. Shape-based SVG highlights only; no browser bounding-box focus rectangles. Keyboard focus uses a gold shape stroke. Native tap highlights and text selection disabled on map geometry. Foreign country click immediately opens available interactions. Disabled actions explain their prerequisite below the button.
 
 2026-10-16: added country dossiers, economic/political management, fronts, queues and trend plots.
+
+## Legislation and plays — 1.2
+
+2026-10-16: retained the atlas aesthetic using the frontend-god-mode workflow. Laws use three category buttons, one labeled policy-area selector, a current-policy row and competing alternatives; no wall of 48 buttons. Visible odds distinguish advances, debates and setbacks. Single reform progress display names the stage and cooldown consequences. Diplomatic demands expose concrete treaty effects, both coalitions, primary/counter/secondary terms and maneuver budgets. War switches to a settlement screen with leverage and explicit concession. Existing Geist, dark panels, amber focus, flat rows and explained disabled actions remain.

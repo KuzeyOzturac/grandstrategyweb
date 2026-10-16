@@ -10,7 +10,7 @@ import {
   relation,
   frontSummary,
 } from "../src/engine";
-import { society, BUILDINGS, lawSupport } from "../src/society";
+import { society, societyTick, BUILDINGS, lawSupport } from "../src/society";
 import type { MapData } from "../src/scenario";
 const map: MapData = JSON.parse(
   fs.readFileSync("public/data/provinces.json", "utf8"),
@@ -106,6 +106,13 @@ describe("National management", () => {
     expect(command(s, map, { type: "enact", law: "healthcare" }).ok).toBe(true);
     expect(n.laws).not.toContain("healthcare");
     expect(command(s, map, { type: "enact", law: "education" }).ok).toBe(false);
+    // Fixed checkpoint seeds exercise successful passage without assuming every bill passes.
+    for (let i = 0; i < 3; i++) {
+      n.enacting!.progress = 12;
+      s.seed = 1;
+      societyTick(s, map);
+    }
+    expect(n.laws).not.toContain("private_health");
     tick(s, map, 80);
     tick(baseline, map, 80);
     expect(n.laws).toContain("healthcare");
@@ -135,7 +142,7 @@ describe("National management", () => {
       command(s, map, { type: "production", id: b.id, method: "automated" }).ok,
     ).toBe(false);
     command(s, map, { type: "research", topic: "productivity" });
-    tick(s, map, 70);
+    tick(s, map, 80);
     expect(n.research.completed).toContain("productivity");
     expect(
       command(s, map, { type: "production", id: b.id, method: "automated" }).ok,

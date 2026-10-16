@@ -1,3 +1,5 @@
+> Revision 1.2: law and diplomatic play rules below are superseded where applicable by [LAWS_DIPLOMACY.md](LAWS_DIPLOMACY.md).
+
 # Simulation rules
 
 ## Time and state

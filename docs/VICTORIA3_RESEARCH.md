@@ -1,3 +1,5 @@
+> Revision 1.2: law and diplomatic play rules below are superseded where applicable by [LAWS_DIPLOMACY.md](LAWS_DIPLOMACY.md).
+
 # Victoria 3 research and adaptation
 
 User direction, 2026-10-16: prioritize national management and country interactions; retire HOI4-style army micromanagement. Supersedes the original first-build army UX. This is inspiration for an original modern setting, not a recreation of Victoria 3's assets or its complete rules.

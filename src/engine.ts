@@ -54,11 +54,59 @@ export type Army = {
   retreats: number;
   manualUntil?: number;
 };
+export const DEMANDS = {
+  access: {
+    name: "Military access",
+    description: "180 days of passage through the target's territory.",
+    infamy: 0,
+  },
+  ceasefire: {
+    name: "Mediate ceasefire",
+    description: "End hostilities and establish a 90-day truce.",
+    infamy: 0,
+  },
+  withdrawal: {
+    name: "Return occupied territory",
+    description: "Restore control of your occupied provinces and make peace.",
+    infamy: 4,
+  },
+  reparations: {
+    name: "War reparations",
+    description:
+      "Target pays up to 0.6 credits daily for 180 days. Unpaid amounts become its debt.",
+    infamy: 8,
+  },
+  open_market: {
+    name: "Open market",
+    description:
+      "Lift bilateral sanctions and establish 180 days of trade cooperation.",
+    infamy: 5,
+  },
+  disarm: {
+    name: "Limit armaments",
+    description:
+      "Demobilize target; reduce equipment by 25% and cap defence spending at 35 for 180 days.",
+    infamy: 10,
+  },
+  humiliation: {
+    name: "Humiliation",
+    description:
+      "Target loses 12 support, 8 legitimacy and 10 infamy; victor gains 5 support.",
+    infamy: 6,
+  },
+} as const;
+export type Demand = keyof typeof DEMANDS;
 export type Crisis = {
   id: string;
   from: string;
   to: string;
-  demand: "access" | "ceasefire" | "withdrawal";
+  demand: Demand;
+  counter?: Demand;
+  defenders?: string[];
+  maneuvers?: number;
+  defenderManeuvers?: number;
+  extra?: Demand[];
+  defenderExtra?: Demand[];
   offer: number;
   day: number;
   deadline: number;
@@ -70,7 +118,14 @@ export type Treaty = {
   a: string;
   b: string;
   kind:
-    "access" | "trade" | "guarantee" | "ceasefire" | "sanction" | "blockade";
+    | "access"
+    | "trade"
+    | "guarantee"
+    | "ceasefire"
+    | "sanction"
+    | "blockade"
+    | "reparations"
+    | "disarm";
   until: number;
 };
 export type Event = {
@@ -453,6 +508,60 @@ export function aidRoute(s: State, map: MapData, from: string, to: string) {
     )
   );
 }
+export function settlementLeverage(s: State, actor: string, target: string) {
+  const owned = Object.values(s.provinces).filter((p) => p.owner === target);
+  const occupied =
+    owned.filter((p) => p.controller === actor).length /
+    Math.max(1, owned.length);
+  const force = (id: string) =>
+    s.armies
+      .filter((a) => a.country === id)
+      .reduce((v, a) => v + (a.strength * a.org) / 100, 0);
+  return Math.round(
+    clamp(
+      occupied * 70 +
+        (100 - s.countries[target].support) * 0.3 +
+        Math.max(0, force(actor) - force(target)) * 0.08,
+    ),
+  );
+}
+function applyDemand(s: State, winner: string, loser: string, demand: Demand) {
+  if (demand === "access") addTreaty(s, winner, loser, "access");
+  if (demand === "ceasefire") {
+    if (atWar(s, winner, loser)) peace(s, winner, loser);
+    else if (["SYR", "OPP"].includes(loser)) peace(s, "SYR", "OPP");
+  }
+  if (demand === "withdrawal") {
+    for (const p of Object.values(s.provinces))
+      if (p.owner === winner && p.controller === loser) p.controller = winner;
+    peace(s, winner, loser);
+  }
+  if (demand === "reparations") addTreaty(s, winner, loser, "reparations");
+  if (demand === "open_market") {
+    s.treaties = s.treaties.filter(
+      (t) =>
+        !(
+          [winner, loser].includes(t.a) &&
+          [winner, loser].includes(t.b) &&
+          ["sanction", "blockade"].includes(t.kind)
+        ),
+    );
+    addTreaty(s, winner, loser, "trade");
+  }
+  if (demand === "disarm") {
+    s.countries[loser].equipment *= 0.75;
+    s.countries[loser].mobilized = false;
+    s.countries[loser].defence = Math.min(35, s.countries[loser].defence);
+    addTreaty(s, winner, loser, "disarm");
+  }
+  if (demand === "humiliation") {
+    s.countries[loser].support = clamp(s.countries[loser].support - 12);
+    s.countries[loser].legitimacy = clamp(s.countries[loser].legitimacy - 8);
+    s.countries[winner].support = clamp(s.countries[winner].support + 5);
+    if (s.society)
+      s.society[loser].infamy = Math.max(0, s.society[loser].infamy - 10);
+  }
+}
 export function acceptance(s: State, c: Crisis) {
   const target = s.countries[c.to];
   const reasons = [
@@ -463,13 +572,25 @@ export function acceptance(s: State, c: Crisis) {
       label: "Domestic exhaustion",
       value: Math.round((100 - target.support) * 0.3),
     },
-    { label: "International backing", value: c.supporters.length * 15 },
+    {
+      label: "International backing",
+      value: (c.supporters.length - (c.defenders?.length ?? 0)) * 15,
+    },
   ];
   if (c.demand === "ceasefire")
     reasons.push({
       label: "Cost of continued conflict",
       value: 25 + Math.min(35, Math.floor(s.day / 8)),
     });
+  if (
+    ["reparations", "disarm", "humiliation", "open_market"].includes(c.demand)
+  )
+    reasons.push({
+      label: "Demand severity",
+      value: -DEMANDS[c.demand].infamy * 2,
+    });
+  if (c.extra?.length)
+    reasons.push({ label: "Additional war aims", value: -c.extra.length * 8 });
   if (c.demand === "withdrawal")
     reasons.push({ label: "Territorial concession", value: -25 });
   if (s.society?.[c.from]?.infamy)
@@ -493,6 +614,21 @@ const addTreaty = (
   s.treaties.push({ a, b, kind, until: s.day + days });
 };
 function peace(s: State, a: string, b: string) {
+  for (const cr of s.crises.filter(
+    (x) =>
+      x.status === "war" &&
+      [x.from, x.to].includes(a) &&
+      [x.from, x.to].includes(b),
+  )) {
+    cr.status = "agreed";
+    for (const attacker of [cr.from, ...cr.supporters])
+      for (const defender of [cr.to, ...(cr.defenders ?? [])]) {
+        s.wars = s.wars.filter(
+          (w) => !(w.includes(attacker) && w.includes(defender)),
+        );
+        addTreaty(s, attacker, defender, "ceasefire", 90);
+      }
+  }
   s.wars = s.wars.filter((w) => !(w.includes(a) && w.includes(b)));
   addTreaty(s, a, b, "ceasefire", 90);
   for (const army of s.armies)
@@ -587,6 +723,16 @@ export function command(
         return fail("Invalid air mission.");
       if (cmd.key === "mobilized" && typeof cmd.value !== "boolean")
         return fail("Invalid mobilization.");
+      if (
+        s.treaties.some(
+          (t) => t.b === actor && t.kind === "disarm" && t.until > s.day,
+        ) &&
+        ((cmd.key === "mobilized" && cmd.value === true) ||
+          (cmd.key === "defence" && cmd.value > 35))
+      )
+        return fail(
+          "An arms-limitation treaty prevents this policy for its remaining duration.",
+        );
       (c as any)[cmd.key] = cmd.value;
       return ok("Policy updated.");
     }
@@ -716,8 +862,18 @@ export function command(
       const to = cmd.to;
       if (!s.countries[to] || to === actor)
         return fail("Choose another country.");
-      if (!["access", "ceasefire", "withdrawal"].includes(cmd.demand))
-        return fail("Unknown demand.");
+      if (!Object.hasOwn(DEMANDS, cmd.demand)) return fail("Unknown demand.");
+      if (
+        cmd.demand === "ceasefire" &&
+        !atWar(s, actor, to) &&
+        !(["SYR", "OPP"].includes(to) && atWar(s, "SYR", "OPP"))
+      )
+        return fail("Target is not a party to a supported conflict.");
+      if (
+        !["access", "ceasefire"].includes(cmd.demand) &&
+        mutual(s, actor, to, "ceasefire")
+      )
+        return fail("A truce prevents coercive demands until it expires.");
       if (
         !Number.isFinite(cmd.offer) ||
         cmd.offer < 0 ||
@@ -727,7 +883,10 @@ export function command(
         return fail("Compensation must be affordable (0–150).");
       if (
         s.crises.some(
-          (x) => x.status === "negotiating" && [x.from, x.to].includes(actor),
+          (x) =>
+            (x.status === "negotiating" ||
+              (x.status === "war" && cmd.demand !== "ceasefire")) &&
+            [x.from, x.to].some((id) => [actor, to].includes(id)),
         )
       )
         return fail("Resolve your existing crisis first.");
@@ -741,13 +900,119 @@ export function command(
         deadline: s.day + 14,
         status: "negotiating",
         supporters: [],
+        defenders: [],
+        counter: "humiliation",
+        maneuvers: 60,
+        defenderManeuvers: 60,
+        extra: [],
+        defenderExtra: [],
       });
+      if (s.society)
+        s.society[actor].infamy = clamp(
+          s.society[actor].infamy + DEMANDS[cmd.demand as Demand].infamy,
+        );
       log(
         s,
         `${name(actor)} opens a ${cmd.demand} crisis with ${name(to)}. Negotiations last 14 days.`,
         "diplomacy",
       );
       return ok("Crisis opened. Compensation is paid only on agreement.");
+    }
+    case "play_demand": {
+      const cr = s.crises.find(
+        (x) =>
+          x.id === cmd.id &&
+          x.status === "negotiating" &&
+          [x.from, x.to].includes(actor),
+      );
+      if (!cr) return fail("No active play.");
+      if (s.day >= cr.day + 10)
+        return fail("Demands are locked during the countdown.");
+      if (
+        !Object.hasOwn(DEMANDS, cmd.demand) ||
+        cmd.demand === "ceasefire" ||
+        cr.demand === "ceasefire"
+      )
+        return fail("Choose a coercive demand for a coercive play.");
+      const opponent = actor === cr.from ? cr.to : cr.from;
+      if (
+        cmd.demand === "withdrawal" &&
+        !Object.values(s.provinces).some(
+          (p) => p.owner === actor && p.controller === opponent,
+        )
+      )
+        return fail("No national territory is occupied by this opponent.");
+      const attacking = actor === cr.from;
+      const key = attacking ? "maneuvers" : "defenderManeuvers";
+      const extraKey = attacking ? "extra" : "defenderExtra";
+      if ((cr[key] ?? 60) < 20) return fail("Requires 20 maneuvers.");
+      if (cmd.primary && attacking)
+        return fail("The initiating primary demand is fixed.");
+      if (cmd.primary && cr.counter === cmd.demand)
+        return fail("Already the counter-demand.");
+      if (
+        !cmd.primary &&
+        [
+          attacking ? cr.demand : (cr.counter ?? "humiliation"),
+          ...(cr[extraKey] ?? []),
+        ].includes(cmd.demand)
+      )
+        return fail("Demand already present.");
+      cr[key] = (cr[key] ?? 60) - 20;
+      if (cmd.primary) {
+        cr.counter = cmd.demand;
+        cr.defenderExtra = (cr.defenderExtra ?? []).filter(
+          (d) => d !== cmd.demand,
+        );
+      } else {
+        cr[extraKey] ??= [];
+        cr[extraKey]!.push(cmd.demand);
+      }
+      if (s.society)
+        s.society[actor].infamy = clamp(
+          s.society[actor].infamy + DEMANDS[cmd.demand as Demand].infamy,
+        );
+      return ok(
+        "Demand added. Secondary demands apply only to a victorious war settlement.",
+      );
+    }
+    case "war_settlement": {
+      const cr = s.crises.find(
+        (x) =>
+          x.id === cmd.id &&
+          x.status === "war" &&
+          [x.from, x.to].includes(actor),
+      );
+      if (!cr) return fail("No active play war.");
+      const enemy = actor === cr.from ? cr.to : cr.from;
+      if (cmd.action !== "concede" && cmd.action !== "enforce")
+        return fail("Choose concede or enforce.");
+      if (cmd.action === "enforce" && settlementLeverage(s, actor, enemy) < 60)
+        return fail(
+          "Requires 60 settlement leverage from occupation, force balance and enemy exhaustion.",
+        );
+      const winner = cmd.action === "concede" ? enemy : actor,
+        loser = winner === cr.from ? cr.to : cr.from;
+      const initiating = winner === cr.from;
+      applyDemand(
+        s,
+        winner,
+        loser,
+        initiating ? cr.demand : (cr.counter ?? "humiliation"),
+      );
+      for (const d of (initiating ? cr.extra : cr.defenderExtra) ?? [])
+        applyDemand(s, winner, loser, d);
+      for (const a of [cr.from, ...cr.supporters])
+        for (const b of [cr.to, ...(cr.defenders ?? [])]) peace(s, a, b);
+      cr.status = "agreed";
+      log(
+        s,
+        `${name(winner)} secures a war settlement from ${name(loser)}.`,
+        "diplomacy",
+      );
+      return ok(
+        "War settled. Winning demands enforced and coalition truces signed.",
+      );
     }
     case "offer": {
       const cr = s.crises.find(
@@ -774,10 +1039,19 @@ export function command(
       );
       if (!cr) return fail("No negotiable crisis.");
       if (cmd.action === "backdown") {
+        const fromWins = actor === cr.to;
+        applyDemand(
+          s,
+          fromWins ? cr.from : cr.to,
+          actor,
+          fromWins ? cr.demand : (cr.counter ?? "humiliation"),
+        );
         cr.status = "backdown";
         c.support = clamp(c.support - 4);
         log(s, `${name(actor)} backs down from the crisis.`, "diplomacy");
-        return ok("Crisis ended without war.");
+        return ok(
+          "Primary demand conceded. Secondary demands are waived; war avoided.",
+        );
       }
       if (cmd.action === "escalate") {
         if (cr.from !== actor) return fail("Only the initiator may escalate.");
@@ -796,9 +1070,21 @@ export function command(
           return fail(
             "No occupied national territory to reclaim. Use an access crisis for intervention.",
           );
+        const attackers = [cr.from, ...cr.supporters],
+          defenders = [cr.to, ...(cr.defenders ?? [])];
+        if (
+          attackers.some((a) =>
+            defenders.some((b) => mutual(s, a, b, "ceasefire")),
+          )
+        )
+          return fail(
+            "A coalition member has an active truce with the opposing side.",
+          );
         cr.status = "war";
-        war(s, cr.from, cr.to);
-        return ok("Crisis escalated into war.");
+        for (const a of attackers) for (const b of defenders) war(s, a, b);
+        return ok(
+          "Both coalitions enter war. Occupation and exhaustion determine settlement leverage.",
+        );
       }
       if (cmd.action !== "negotiate") return fail("Unknown resolution.");
       if (cr.to !== actor && acceptance(s, cr).score < 0)
@@ -815,22 +1101,7 @@ export function command(
       cr.status = "agreed";
       if (cr.obligation && s.society)
         s.society[cr.from].obligations.push(cr.to);
-      if (cr.demand === "ceasefire") {
-        if (atWar(s, cr.from, cr.to)) peace(s, cr.from, cr.to);
-        else if (["SYR", "OPP"].includes(cr.to)) peace(s, "SYR", "OPP");
-        else {
-          cr.status = "rejected";
-          payer.treasury += cr.offer;
-          s.countries[cr.to].treasury -= cr.offer;
-          return fail("Target is not party to a supported conflict.");
-        }
-      } else if (cr.demand === "access") addTreaty(s, cr.from, cr.to, "access");
-      else {
-        for (const p of Object.values(s.provinces))
-          if (p.owner === cr.from && p.controller === cr.to)
-            p.controller = cr.from;
-        peace(s, cr.from, cr.to);
-      }
+      applyDemand(s, cr.from, cr.to, cr.demand);
       log(
         s,
         `${name(cr.from)} and ${name(cr.to)} reach agreement on ${cr.demand}.`,
@@ -843,23 +1114,32 @@ export function command(
     case "backing": {
       const cr = s.crises.find(
         (x) =>
-          x.id === cmd.id && x.status === "negotiating" && x.from === actor,
+          x.id === cmd.id &&
+          x.status === "negotiating" &&
+          [x.from, x.to].includes(actor),
       );
       if (!cr) return fail("No active crisis.");
       const supporter = cmd.to;
       if (
         !s.countries[supporter] ||
         [cr.from, cr.to].includes(supporter) ||
-        cr.supporters.includes(supporter)
+        [...cr.supporters, ...(cr.defenders ?? [])].includes(supporter) ||
+        supporter === s.player
       )
         return fail("Choose an eligible supporter.");
       if (relation(s, actor, supporter) < 15)
         return fail("Supporter is not aligned with your government.");
       if (c.treasury < 15 || s.countries[supporter].treasury < 10)
         return fail("Backing requires 15 credits; supporter needs 10.");
+      if (s.day >= cr.day + 10)
+        return fail("Coalitions are locked during the final countdown.");
       c.treasury -= 15;
       s.countries[supporter].treasury -= 10;
-      cr.supporters.push(supporter);
+      if (actor === cr.from) cr.supporters.push(supporter);
+      else {
+        cr.defenders ??= [];
+        cr.defenders.push(supporter);
+      }
       s.escalation = clamp(s.escalation + 3);
       return ok("International backing secured.");
     }
@@ -1144,6 +1424,55 @@ function ai(s: State, map: MapData) {
             c.id,
           );
       }
+      const losing = s.crises.find(
+        (x) =>
+          x.status === "war" &&
+          [x.from, x.to].includes(c.id) &&
+          settlementLeverage(s, c.id === x.from ? x.to : x.from, c.id) >= 75,
+      );
+      if (losing)
+        command(
+          s,
+          map,
+          { type: "war_settlement", id: losing.id, action: "concede" },
+          c.id,
+        );
+      const defending = s.crises.find(
+        (x) =>
+          x.status === "negotiating" &&
+          x.to === c.id &&
+          x.demand !== "ceasefire" &&
+          s.day >= x.day + 3 &&
+          s.day < x.day + 10,
+      );
+      if (defending && acceptance(s, defending).score < 0) {
+        if (!defending.defenderExtra?.length)
+          command(
+            s,
+            map,
+            { type: "play_demand", id: defending.id, demand: "reparations" },
+            c.id,
+          );
+        const ally = Object.keys(s.countries).find(
+          (id) =>
+            ![
+              defending.from,
+              defending.to,
+              s.player,
+              ...defending.supporters,
+              ...(defending.defenders ?? []),
+            ].includes(id) &&
+            relation(s, c.id, id) >= 15 &&
+            s.countries[id].treasury >= 10,
+        );
+        if (ally && !defending.defenders?.length)
+          command(
+            s,
+            map,
+            { type: "backing", id: defending.id, to: ally },
+            c.id,
+          );
+      }
       const active = s.crises.find(
         (x) => x.status === "negotiating" && x.from === c.id,
       );
@@ -1289,6 +1618,20 @@ export function tick(s: State, map: MapData, days = 1) {
     s.day++;
     s.treaties = s.treaties.filter((t) => t.until > s.day);
     economy(s);
+    for (const t of s.treaties) {
+      if (t.kind === "reparations") {
+        const debtor = s.countries[t.b],
+          recipient = s.countries[t.a];
+        const paid = Math.min(0.6, debtor.treasury);
+        debtor.treasury -= paid;
+        debtor.debt += 0.6 - paid;
+        recipient.treasury += 0.6;
+      }
+      if (t.kind === "disarm") {
+        s.countries[t.b].mobilized = false;
+        s.countries[t.b].defence = Math.min(35, s.countries[t.b].defence);
+      }
+    }
     ai(s, map);
     societyTick(s, map);
     strategicDeploy(s, map);
@@ -1487,6 +1830,8 @@ export function validateState(input: unknown, map: MapData): State {
         "ceasefire",
         "sanction",
         "blockade",
+        "reparations",
+        "disarm",
       ].includes(t.kind) ||
       !Number.isFinite(t.until)
     )
@@ -1495,7 +1840,7 @@ export function validateState(input: unknown, map: MapData): State {
     if (
       !META[c.from] ||
       !META[c.to] ||
-      !["access", "ceasefire", "withdrawal"].includes(c.demand) ||
+      !Object.hasOwn(DEMANDS, c.demand) ||
       !["negotiating", "agreed", "war", "backdown", "rejected"].includes(
         c.status,
       ) ||
@@ -1508,6 +1853,22 @@ export function validateState(input: unknown, map: MapData): State {
       !c.supporters.every((x) => META[x])
     )
       throw Error("Invalid crisis.");
+  for (const cr of s.crises) {
+    if (
+      (cr.counter && !Object.hasOwn(DEMANDS, cr.counter)) ||
+      [...(cr.extra ?? []), ...(cr.defenderExtra ?? [])].some(
+        (d) => !Object.hasOwn(DEMANDS, d),
+      ) ||
+      (cr.defenders ?? []).some(
+        (id) =>
+          !s.countries[id] || [cr.from, cr.to, ...cr.supporters].includes(id),
+      )
+    )
+      throw Error("Invalid play demands or coalition.");
+    for (const v of [cr.maneuvers, cr.defenderManeuvers])
+      if (v !== undefined && (!Number.isFinite(v) || v < 0 || v > 60))
+        throw Error("Invalid maneuver budget.");
+  }
   for (const a of s.aid)
     if (
       !META[a.from] ||

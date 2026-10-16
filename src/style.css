@@ -1735,3 +1735,86 @@ small {
 .panel-heading {
   background: var(--panel);
 }
+
+.law-categories,
+.law-totals,
+.law-odds,
+.law-title {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.law-categories {
+  margin: 16px 0;
+}
+.law-categories button {
+  flex: 1;
+  font-size: 11px;
+}
+.law-categories button[aria-pressed="true"] {
+  border-color: var(--accent, #c8a76a);
+  color: var(--accent, #c8a76a);
+}
+.law-totals,
+.law-odds {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 10px 0;
+}
+.law-totals span,
+.law-odds span {
+  padding-right: 8px;
+  border-right: 1px solid var(--border);
+}
+.law-title {
+  justify-content: space-between;
+}
+.law-title h4 {
+  margin: 4px 0;
+}
+.law-row.enacted {
+  background: var(--raised);
+  padding: 12px;
+}
+.law-badge {
+  color: var(--accent);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.law-codex select {
+  width: 100%;
+  padding: 10px;
+  color: #e8e5d8;
+  background: var(--raised);
+  border: 1px solid var(--border);
+}
+.law-codex small {
+  display: block;
+  margin-top: 6px;
+}
+.law-codex progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.law-codex button {
+  min-height: 36px;
+  padding: 8px 10px;
+}
+.play-terms {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.play-terms p {
+  margin: 6px 0;
+  font-size: 12px;
+}
+.play-terms select {
+  width: 100%;
+  background: var(--raised);
+  color: inherit;
+  padding: 10px;
+  border: 1px solid var(--border);
+}

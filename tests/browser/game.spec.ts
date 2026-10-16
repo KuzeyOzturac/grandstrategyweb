@@ -152,10 +152,16 @@ test("politics exposes groups, reforms, research and decisions", async ({
   await expect(
     page.getByRole("checkbox", { name: /Workers & households/ }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Economy", exact: true }).click();
+  await page.getByLabel("Policy area", { exact: true }).selectOption("health");
+  await expect(
+    page.getByText("Private healthcare", { exact: true }),
+  ).toBeVisible();
   await page
     .getByRole("button", { name: "Begin reform", exact: false })
     .first()
     .click();
+  await expect(page.getByLabel("Active reform")).toContainText("Drafting");
   await expect(page.getByRole("status")).toContainText("debate");
   await page
     .getByRole("button", { name: "Research · 70 base days", exact: true })
@@ -271,4 +277,96 @@ test("new decisions pause the running simulation instead of passing unnoticed", 
   await expect(
     page.getByText("A decision awaits", { exact: true }),
   ).toBeVisible();
+});
+
+test("law categories expose competing policies, odds and cancellation cooldowns", async ({
+  page,
+}) => {
+  await begin(page);
+  await page.getByRole("button", { name: "Politics", exact: true }).click();
+  await page.getByRole("button", { name: "Human rights", exact: true }).click();
+  await page.getByLabel("Policy area", { exact: true }).selectOption("labor");
+  await expect(
+    page.getByText("Unregulated workplaces", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".law-odds").first()).toContainText("% advance");
+  await page
+    .getByRole("button", { name: "Begin reform · 15 credits", exact: true })
+    .first()
+    .click();
+  await expect(page.getByLabel("Active reform")).toContainText(
+    "Workplace protections",
+  );
+  await page
+    .getByRole("button", { name: "Abandon reform", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("60-day cooldown");
+  await expect(
+    page
+      .getByRole("button", { name: "Begin reform · 15 credits", exact: true })
+      .first(),
+  ).toBeDisabled();
+  await page
+    .locator(".law-codex")
+    .evaluate((el) => el.scrollIntoView({ block: "start" }));
+  await page.screenshot({ path: "test-results/law-codex.png", fullPage: true });
+  const save = await saved(page);
+  expect(save.state.society.TUR.lawCooldowns.labor).toBe(60);
+});
+
+test("secondary war aims, coalition backing and settlement are usable from country diplomacy", async ({
+  page,
+}) => {
+  await begin(page);
+  await page.getByRole("button", { name: "Diplomacy", exact: true }).click();
+  await page
+    .getByRole("button", { name: "War reparations", exact: true })
+    .click();
+  await page.getByLabel("Compensation", { exact: false }).fill("0");
+  await page
+    .getByRole("button", { name: "Begin diplomatic play", exact: true })
+    .click();
+  await page
+    .getByLabel("Additional demand", { exact: true })
+    .selectOption("disarm");
+  await page
+    .getByRole("button", { name: "Add secondary war aim", exact: true })
+    .click();
+  await expect(page.locator(".play-terms")).toContainText(
+    "40 maneuvers remaining",
+  );
+  await page
+    .getByRole("button", { name: "Seek USA backing", exact: true })
+    .click();
+  await expect(page.locator(".play-terms")).toContainText(
+    "Türkiye, United States",
+  );
+  for (let n = 2; n <= 4; n++) await day(page, n);
+  await page
+    .getByRole("button", { name: "Escalate to war", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Enforce war aims", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByText(/Your war aims:/)).toContainText(
+    "Limit armaments",
+  );
+  await page
+    .getByRole("button", { name: "Concede opposing war aims", exact: true })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: "test-results/war-settlement.png",
+    fullPage: true,
+  });
+  await page
+    .getByRole("button", { name: "Concede opposing war aims", exact: true })
+    .click();
+  await expect(page.getByRole("status")).toContainText("War settled");
+  const save = await saved(page);
+  expect(save.state.crises.at(-1).status).toBe("agreed");
+  expect(
+    save.state.wars.some(
+      (pair: string[]) => pair.includes("TUR") && pair.includes("SYR"),
+    ),
+  ).toBe(false);
 });

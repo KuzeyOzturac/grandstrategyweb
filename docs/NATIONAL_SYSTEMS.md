@@ -1,3 +1,5 @@
+> Revision 1.2: law and diplomatic play rules below are superseded where applicable by [LAWS_DIPLOMACY.md](LAWS_DIPLOMACY.md).
+
 # National-management systems
 
 Read with REDESIGN.md; original combat details remain in SYSTEMS.md.

@@ -67,30 +67,16 @@ export const GROUPS = {
   civic: "Civil society",
 } as const;
 export type Group = keyof typeof GROUPS;
-export const LAWS = {
-  healthcare: {
-    name: "Public healthcare",
-    description:
-      "Living standards +1.2; costs 0.45 credits/day and 15 bureaucracy.",
-    support: { business: -2, workers: 6, security: 0, civic: 4 },
-  },
-  labor: {
-    name: "Workplace protections",
-    description: "Living standards +0.8; output −5%; reduces radical growth.",
-    support: { business: -4, workers: 7, security: 0, civic: 3 },
-  },
-  free_trade: {
-    name: "Open trade policy",
-    description: "Trade capacity +40%; tariff income −50%.",
-    support: { business: 6, workers: -1, security: -2, civic: 3 },
-  },
-  education: {
-    name: "Public education",
-    description: "Research +40%; costs 0.35 credits/day and 15 bureaucracy.",
-    support: { business: 2, workers: 4, security: -1, civic: 6 },
-  },
-} as const;
-export type Law = keyof typeof LAWS;
+export { LAWS, LAW_GROUPS, lawEffects, currentLaw, lawChances } from "./laws";
+import {
+  LAWS,
+  LAW_GROUPS,
+  lawEffects,
+  currentLaw,
+  lawChances,
+  type Law,
+} from "./laws";
+export type { Law } from "./laws";
 export const TECH = {
   productivity: {
     name: "Industrial automation",
@@ -125,7 +111,14 @@ export type Society = {
   groups: Record<Group, { clout: number; approval: number }>;
   government: Group[];
   laws: Law[];
-  enacting: null | { law: Law; progress: number };
+  enacting: null | {
+    law: Law;
+    progress: number;
+    stage?: number;
+    setbacks?: number;
+    outcome?: string;
+  };
+  lawCooldowns?: Record<string, number>;
   research: { topic: Tech | null; progress: number; completed: Tech[] };
   buildings: {
     id: string;
@@ -172,7 +165,14 @@ const log = (
   s.events = s.events.slice(0, 120);
 };
 export function ensureSociety(s: State) {
-  if (s.society) return;
+  if (s.society) {
+    for (const n of Object.values(s.society)) {
+      for (const g of Object.values(LAW_GROUPS))
+        if (!n.laws.some((l) => g.choices.includes(l)))
+          n.laws.push(g.choices[0]);
+    }
+    return;
+  }
   s.society = {};
   for (const id of Object.keys(s.countries)) s.society[id] = initial(id);
 }
@@ -199,7 +199,7 @@ function initial(id: string): Society {
       civic: { clout: 15, approval: 0 },
     },
     government: ["business", "security"],
-    laws: [],
+    laws: Object.values(LAW_GROUPS).map((g) => g.choices[0]),
     enacting: null,
     research: { topic: null, progress: 0, completed: [] },
     buildings: [],
@@ -232,8 +232,7 @@ export function capacity(n: Society) {
     80 +
       n.buildings.filter((b) => b.kind === "administration").length * 20 +
       (n.research.completed.includes("administration") ? 20 : 0) -
-      n.laws.filter((l) => ["education", "healthcare"].includes(l)).length *
-        15 -
+      lawEffects(n).bureaucracy -
       n.routes.length * 6,
   );
 }
@@ -421,21 +420,40 @@ export function societyCommand(
   if (cmd.type === "enact") {
     if (!LAWS[cmd.law as Law]) return fail("Unknown reform.");
     if (n.laws.includes(cmd.law)) return fail("Law already enacted.");
+    const proposed = LAWS[cmd.law as Law];
+    if ((n.lawCooldowns?.[proposed.group] ?? 0) > s.day)
+      return fail(
+        "This policy area is cooling down after an abandoned reform.",
+      );
+    if (c.legitimacy < 25)
+      return fail("Legitimacy must reach 25 to introduce a reform.");
     if (n.enacting) return fail("A reform is already being debated.");
     if (lawSupport(n, cmd.law) < 35)
       return fail("Insufficient political support (35 required).");
     if (capacity(n) < 15) return fail("Requires 15 bureaucracy to administer.");
     if (c.treasury < 15) return fail("Requires 15 credits to begin reform.");
     c.treasury -= 15;
-    n.enacting = { law: cmd.law, progress: 0 };
+    n.enacting = {
+      law: cmd.law,
+      progress: 0,
+      stage: 0,
+      setbacks: 0,
+      outcome: "Drafting begins",
+    };
     log(s, `${name(actor)} begins debate on ${LAWS[cmd.law as Law].name}.`);
     return ok(
       "Reform debate started. Support and legitimacy determine progress.",
     );
   }
   if (cmd.type === "cancel_law") {
+    if (!n.enacting) return fail("No reform to abandon.");
+    n.lawCooldowns ??= {};
+    n.lawCooldowns[LAWS[n.enacting.law].group] = s.day + 60;
+    n.radicals = clamp(n.radicals + lawSupport(n, n.enacting.law) * 0.04);
     n.enacting = null;
-    return ok("Reform debate abandoned.");
+    return ok(
+      "Reform abandoned: supporters radicalize; this policy area has a 60-day cooldown.",
+    );
   }
   if (cmd.type === "government") {
     const ids = cmd.groups as Group[];
@@ -550,7 +568,7 @@ export function societyTick(s: State, map: MapData) {
         mix[good] *
         (1 - damage / 160) *
         (n.research.completed.includes("productivity") ? 1.15 : 1) *
-        (n.laws.includes("labor") ? 0.95 : 1);
+        (1 + lawEffects(n).output / 100);
       for (const b of n.buildings) {
         if (BUILDINGS[b.kind].output === good)
           supply +=
@@ -674,8 +692,7 @@ export function societyTick(s: State, map: MapData) {
     const target = clamp(
       13.5 +
         (n.employment - 75) * 0.09 +
-        (n.laws.includes("healthcare") ? 1.2 : 0) +
-        (n.laws.includes("labor") ? 0.8 : 0) -
+        lawEffects(n).living -
         (basket - 1) * 5 -
         (c.tax - 30) * 0.035,
       5,
@@ -686,7 +703,7 @@ export function societyTick(s: State, map: MapData) {
       n.radicals +
         (n.living < 12 ? 0.045 : -0.018) +
         (c.tax > 45 ? 0.025 : 0) -
-        (n.laws.includes("labor") ? 0.015 : 0),
+        lawEffects(n).calm / 1000,
     );
     n.loyalists = clamp(n.loyalists + (n.living > 15 ? 0.025 : -0.01));
     c.energy = clamp(
@@ -706,10 +723,7 @@ export function societyTick(s: State, map: MapData) {
     c.support = clamp(
       c.support + (n.living - 13) * 0.006 - n.radicals * 0.0004,
     );
-    const cost =
-      (n.laws.includes("healthcare") ? 0.45 : 0) +
-      (n.laws.includes("education") ? 0.35 : 0) +
-      Object.keys(n.missions).length * 0.08;
+    const cost = lawEffects(n).cost + Object.keys(n.missions).length * 0.08;
     const revenue =
       n.routes.reduce((v, r) => v + r.volume * 0.01, 0) *
         (n.laws.includes("free_trade") ? 0.5 : 1) +
@@ -770,22 +784,62 @@ export function societyTick(s: State, map: MapData) {
         n.queue.shift();
       }
     }
-    if (n.enacting) {
-      const support = lawSupport(n, n.enacting.law);
-      n.enacting.progress +=
-        support >= 35 ? Math.max(0.2, c.legitimacy / 75) : 0;
-      n.radicals = clamp(n.radicals + (support < 45 ? 0.03 : 0));
-      if (n.enacting.progress >= 35) {
-        const law = n.enacting.law;
-        n.laws.push(law);
-        n.enacting = null;
-        log(s, `${name(id)} enacts ${LAWS[law].name}.`);
+    if (n.enacting && c.legitimacy >= 25) {
+      const e = n.enacting;
+      e.progress += Math.max(0.25, c.legitimacy / 75);
+      if (e.progress >= 12) {
+        e.progress = 0;
+        const chances = lawChances(n, e.law);
+        s.seed = (Math.imul(s.seed, 1664525) + 1013904223) >>> 0;
+        const roll = (s.seed / 4294967296) * 100;
+        if (roll < chances.advance) {
+          e.stage = (e.stage ?? 0) + 1;
+          e.outcome = "Advance: legislative stage approved";
+        } else if (roll < chances.advance + chances.debate) {
+          e.outcome = "Debate: another hearing required";
+          n.groups.civic.approval = clamp(
+            n.groups.civic.approval + 0.5,
+            -20,
+            20,
+          );
+        } else {
+          e.setbacks = (e.setbacks ?? 0) + 1;
+          e.outcome = "Setback: opposition blocks the bill";
+          n.radicals = clamp(n.radicals + 1);
+        }
+        log(s, `${name(id)}: ${LAWS[e.law].name} — ${e.outcome}.`);
+        if ((e.stage ?? 0) >= 3) {
+          const law = e.law,
+            group = LAWS[law].group;
+          const previous = currentLaw(n, group);
+          n.laws = n.laws.filter((l) => LAWS[l].group !== group);
+          n.laws.push(law);
+          for (const k of Object.keys(GROUPS) as Group[])
+            n.groups[k].approval = clamp(
+              n.groups[k].approval +
+                LAWS[law].support[k] -
+                LAWS[previous].support[k],
+              -20,
+              20,
+            );
+          n.enacting = null;
+          log(
+            s,
+            `${name(id)} enacts ${LAWS[law].name}, replacing ${LAWS[previous].name}.`,
+          );
+        } else if ((e.setbacks ?? 0) >= 3) {
+          n.lawCooldowns ??= {};
+          n.lawCooldowns[LAWS[e.law].group] = s.day + 60;
+          n.radicals = clamp(n.radicals + 2);
+          n.enacting = null;
+          log(s, `${name(id)}'s reform fails after three setbacks.`);
+        }
       }
     }
     if (n.research.topic) {
       n.research.progress +=
         (1 + n.buildings.filter((b) => b.kind === "university").length * 0.35) *
-        (n.laws.includes("education") ? 1.4 : 1);
+        (1 + lawEffects(n).research / 100);
       if (n.research.progress >= TECH[n.research.topic].days) {
         log(s, `${name(id)} completes ${TECH[n.research.topic].name}.`);
         n.research.completed.push(n.research.topic);
@@ -930,6 +984,28 @@ export function validateSociety(s: State) {
       !Number.isFinite(n.research.progress)
     )
       throw Error("Invalid law, research or government.");
+    for (const [group, def] of Object.entries(LAW_GROUPS)) {
+      if (n.laws.filter((l) => def.choices.includes(l)).length !== 1)
+        throw Error("Each law group requires exactly one law: " + group);
+    }
+    if (
+      n.lawCooldowns &&
+      Object.entries(n.lawCooldowns).some(
+        ([g, d]) => !LAW_GROUPS[g] || !Number.isFinite(d) || d < 0,
+      )
+    )
+      throw Error("Invalid reform cooldown.");
+    if (
+      n.enacting &&
+      (![n.enacting.stage ?? 0, n.enacting.setbacks ?? 0].every(
+        Number.isInteger,
+      ) ||
+        (n.enacting.stage ?? 0) < 0 ||
+        (n.enacting.stage ?? 0) > 2 ||
+        (n.enacting.setbacks ?? 0) < 0 ||
+        (n.enacting.setbacks ?? 0) > 2)
+    )
+      throw Error("Invalid legislative stage.");
     if (
       n.enacting &&
       (!LAWS[n.enacting.law] || !Number.isFinite(n.enacting.progress))

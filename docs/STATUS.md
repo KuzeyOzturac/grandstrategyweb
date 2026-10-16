@@ -1,5 +1,23 @@
 # Status
 
+Revision 1.2.0 verified locally; deployment in progress, 2026-10-16.
+Live: https://kuzeyozturac.github.io/grandstrategyweb/
+
+Latest request: deeper laws and diplomacy inspired by the linked Victoria3 wiki law/diplomatic-play pages and TNO law taxonomy. Read LAWS_DIPLOMACY.md for source provenance, exact formulas, new commands, migration and explicit scope boundaries.
+
+- 48 mutually exclusive choices in16 policy areas; three policy categories and a compact selector.
+- Material effects, political endorsement/opposition, three-stage seeded legislation, debate/setback outcomes, legitimacy pauses and failure/cancellation cooldowns.
+- Seven diplomatic goals, two-sided coalitions/counter-demands, secondary war aims, maneuver budgets, primary concessions and ongoing treaties.
+- War settlement leverage, enforce/concede, negotiated ceasefire and coalition truces; resistant AI defenders bargain using shared commands.
+- Save v1 fills missing policy groups, preserving prior enacted reforms and current debate.
+- Country-first atlas/highlights, national economy and strategic fronts from1.1 retained.
+
+Local final verification passed:42 model tests,11 browser journeys, typecheck, production build; screenshots inspected. Deployment commit/run and hosted evidence pending.
+
+---
+
+# Status
+
 Country-first revision 1.1.0 published and verified, 2026-10-16.
 Live: https://kuzeyozturac.github.io/grandstrategyweb/
 Game source: eb7446542a45d43d76c12366c299566b66edb03f. GitHub Actions run 38936018202 passed verification and deployment.

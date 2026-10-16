@@ -17,6 +17,8 @@ Open the printed URL with `/grandstrategyweb/`. Build with `npm run build`; prev
 
 Click a country for its dossier and diplomatic actions. Click an owned state to choose a construction location. Production manages facilities and the national queue; Market shows shortages and trade routes; Politics contains interest groups, reforms and research. Military fronts offers advance/defend/standby while commanders manage deployments. Space pauses; 1–3 change speed (2 / 0.7 / 0.2 seconds per game day). New decisions and incoming proposals pause the clock. Save/export/import under Journal; older saves are migrated.
 
+Politics now offers 48 competing laws in 16 policy areas, with legislative stages, setbacks and policy cooldowns. Diplomatic plays offer seven goals, two-sided coalitions, counter-demands and war settlements. See [law and diplomacy rules/references](docs/LAWS_DIPLOMACY.md).
+
 The [Victoria 3 research matrix](docs/VICTORIA3_RESEARCH.md) records the official sources, adaptations and remaining depth. [REDESIGN.md](docs/REDESIGN.md) supersedes the original army UI plan. This is an aggregate national-management game, not a complete pop-level economic simulation.
 
 ## Verification

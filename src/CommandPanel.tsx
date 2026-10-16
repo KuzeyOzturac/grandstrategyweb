@@ -1,3 +1,4 @@
+import { LawPanel } from "./LawPanel";
 import { useState, useEffect } from "react";
 import {
   ChevronRightIcon,
@@ -7,6 +8,8 @@ import {
 } from "@radix-ui/react-icons";
 import { META, name, dateLabel, type MapData } from "./scenario";
 import {
+  DEMANDS,
+  settlementLeverage,
   acceptance,
   atWar,
   relation,
@@ -176,7 +179,9 @@ export default function CommandPanel({
         ? selected!
         : c.capital;
   const crises = s.crises.filter(
-    (cr) => cr.status === "negotiating" && [cr.from, cr.to].includes(s.player),
+    (cr) =>
+      ["negotiating", "war"].includes(cr.status) &&
+      [cr.from, cr.to].includes(s.player),
   );
   const titles = {
     overview: "National overview",
@@ -1068,56 +1073,7 @@ export default function CommandPanel({
               households rather than individual Pops.
             </p>
           </div>
-          <div className="section">
-            <h3>Laws & institutions</h3>
-            <Stat label="Available bureaucracy" value={num(capacity(n))} />
-            {n.enacting && (
-              <div className="law-progress">
-                <b>Debating: {LAWS[n.enacting.law].name}</b>
-                <p>
-                  {num((n.enacting.progress / 35) * 100)}% progress · legitimacy
-                  affects speed
-                </p>
-                <Btn onClick={() => send({ type: "cancel_law" })}>
-                  Abandon reform
-                </Btn>
-              </div>
-            )}
-            {(Object.keys(LAWS) as Law[]).map((law) => (
-              <div className="law-row" key={law}>
-                <h4>
-                  {LAWS[law].name} {n.laws.includes(law) && <CheckIcon />}
-                </h4>
-                <p>{LAWS[law].description}</p>
-                <p className="hint">
-                  Political support: {lawSupport(n, law).toFixed(0)} · needs 35.{" "}
-                  {Object.keys(GROUPS)
-                    .filter((g) => LAWS[law].support[g as Group] > 0)
-                    .map((g) => GROUPS[g as Group])
-                    .join(", ")}{" "}
-                  support it.
-                </p>
-                {!n.laws.includes(law) && (
-                  <Btn
-                    why={
-                      n.enacting
-                        ? "Finish the current debate first."
-                        : lawSupport(n, law) < 35
-                          ? "Not enough political support."
-                          : capacity(n) < 15
-                            ? "Requires 15 bureaucracy."
-                            : c.treasury < 15
-                              ? "Requires 15 credits."
-                              : null
-                    }
-                    onClick={() => send({ type: "enact", law })}
-                  >
-                    Begin reform · 15 credits
-                  </Btn>
-                )}
-              </div>
-            ))}
-          </div>
+          <LawPanel s={s} send={send} />
           <div className="section">
             <h3>Research & development</h3>
             {n.research.topic && (
@@ -1206,10 +1162,16 @@ function PlayBuilder({
   send: (c: Command) => void;
   crises: Crisis[];
 }) {
+  const [additional, setAdditional] = useState<Crisis["demand"]>("reparations");
   const [demand, setDemand] = useState<Crisis["demand"]>("access"),
     [offer, setOffer] = useState(65);
   const c = s.countries[s.player],
-    active = crises.find((cr) => cr.to === target || cr.from === target);
+    active =
+      crises.find(
+        (cr) =>
+          cr.status === "negotiating" &&
+          (cr.to === target || cr.from === target),
+      ) ?? crises.find((cr) => cr.to === target || cr.from === target);
   const draft: Crisis = {
     id: "preview",
     from: s.player,
@@ -1222,6 +1184,63 @@ function PlayBuilder({
     supporters: [],
   };
   const a = acceptance(s, active ?? draft);
+  if (active?.status === "war") {
+    const enemy = active.from === s.player ? active.to : active.from;
+    const leverage = settlementLeverage(s, s.player, enemy);
+    const initiating = active.from === s.player;
+    return (
+      <div className="section">
+        <span className="eyebrow">War settlement</span>
+        <h3>{DEMANDS[active.demand].name}</h3>
+        <p>
+          {name(active.from)} vs {name(active.to)}
+        </p>
+        <p>
+          Your war aims:{" "}
+          {[
+            initiating ? active.demand : (active.counter ?? "humiliation"),
+            ...((initiating ? active.extra : active.defenderExtra) ?? []),
+          ]
+            .map((d) => DEMANDS[d].name)
+            .join(", ")}
+        </p>
+        <p>
+          Settlement leverage: {leverage}/100 · requires 60 to enforce victory
+        </p>
+        <p className="hint">
+          Occupation, relative army strength and enemy exhaustion increase
+          leverage. Conceding enforces all opposing war aims.
+        </p>
+        <Btn
+          why={leverage < 60 ? "Requires 60 settlement leverage" : null}
+          onClick={() =>
+            send({ type: "war_settlement", id: active.id, action: "enforce" })
+          }
+        >
+          Enforce war aims
+        </Btn>
+        <Btn
+          why={
+            c.treasury < 65
+              ? "Requires 65 credits for the initial peace offer"
+              : null
+          }
+          onClick={() =>
+            send({ type: "crisis", to: enemy, demand: "ceasefire", offer: 65 })
+          }
+        >
+          Negotiate a ceasefire
+        </Btn>
+        <Btn
+          onClick={() =>
+            send({ type: "war_settlement", id: active.id, action: "concede" })
+          }
+        >
+          Concede opposing war aims
+        </Btn>
+      </div>
+    );
+  }
   return (
     <div className="section play-builder">
       <span className="eyebrow">
@@ -1259,22 +1278,123 @@ function PlayBuilder({
       )}
       {!active && (
         <div className="goal-options">
-          {(
-            [
-              ["access", "Military access"],
-              ["ceasefire", "Mediate ceasefire"],
-              ["withdrawal", "Demand withdrawal"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              aria-pressed={demand === id}
-              className={demand === id ? "active" : ""}
-              onClick={() => setDemand(id)}
-              key={id}
-            >
-              {label}
-            </button>
-          ))}
+          {Object.entries(DEMANDS).map(([key, goal]) => {
+            const id = key as Crisis["demand"],
+              label = goal.name;
+            return (
+              <button
+                aria-pressed={demand === id}
+                className={demand === id ? "active" : ""}
+                onClick={() => setDemand(id)}
+                key={id}
+              >
+                {label}
+              </button>
+            );
+          })}
+          <p className="hint">
+            {DEMANDS[demand].description} Infamy on opening: +
+            {DEMANDS[demand].infamy}.
+          </p>
+        </div>
+      )}
+      {active && (
+        <div className="play-terms">
+          <p>
+            <b>Primary demand:</b> {DEMANDS[active.demand].name}
+          </p>
+          <p>{DEMANDS[active.demand].description}</p>
+          <p>
+            <b>Counter-demand:</b>{" "}
+            {DEMANDS[active.counter ?? "humiliation"].name}
+          </p>
+          <p>
+            Initiator coalition:{" "}
+            {[active.from, ...active.supporters].map(name).join(", ")}
+          </p>
+          <p>
+            Defender coalition:{" "}
+            {[active.to, ...(active.defenders ?? [])].map(name).join(", ")}
+          </p>
+          <p className="hint">
+            Backing means joining this side if war starts. Backing locks during
+            countdown. Backing down concedes the other side’s primary demand.
+          </p>
+          <p>
+            Secondary war aims:{" "}
+            {(
+              (active.from === s.player
+                ? active.extra
+                : active.defenderExtra) ?? []
+            )
+              .map((d) => DEMANDS[d].name)
+              .join(", ") || "None"}
+          </p>
+          {active.demand !== "ceasefire" && (
+            <>
+              <label className="field">
+                Add or revise demands
+                <select
+                  aria-label="Additional demand"
+                  value={additional}
+                  onChange={(e) =>
+                    setAdditional(e.target.value as Crisis["demand"])
+                  }
+                >
+                  {Object.entries(DEMANDS)
+                    .filter(([id]) => id !== "ceasefire")
+                    .map(([id, g]) => (
+                      <option key={id} value={id}>
+                        {g.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p>{DEMANDS[additional].description}</p>
+              <p>
+                {active.from === s.player
+                  ? (active.maneuvers ?? 60)
+                  : (active.defenderManeuvers ?? 60)}{" "}
+                maneuvers remaining · 20 per demand · +
+                {DEMANDS[additional].infamy} infamy
+              </p>
+              <Btn
+                why={
+                  s.day >= active.day + 10
+                    ? "Demands locked during countdown"
+                    : null
+                }
+                onClick={() =>
+                  send({
+                    type: "play_demand",
+                    id: active.id,
+                    demand: additional,
+                  })
+                }
+              >
+                Add secondary war aim
+              </Btn>
+              {active.to === s.player && (
+                <Btn
+                  why={
+                    s.day >= active.day + 10
+                      ? "Demands locked during countdown"
+                      : null
+                  }
+                  onClick={() =>
+                    send({
+                      type: "play_demand",
+                      id: active.id,
+                      demand: additional,
+                      primary: true,
+                    })
+                  }
+                >
+                  Set primary counter-demand
+                </Btn>
+              )}
+            </>
+          )}
         </div>
       )}
       <label className="field">
@@ -1346,29 +1466,34 @@ function PlayBuilder({
                 Offer an obligation
                 <span>Acceptance +20; commits 8 future influence.</span>
               </label>
-              <div className="button-pair">
-                {["USA", "RUS"].map((id) => (
-                  <Btn
-                    key={id}
-                    why={
-                      relation(s, s.player, id) < 15
-                        ? "Not aligned with your government."
-                        : active.supporters.includes(id)
-                          ? "Already backing this play."
-                          : c.treasury < 15
-                            ? "Requires 15 credits."
-                            : null
-                    }
-                    onClick={() =>
-                      send({ type: "backing", id: active.id, to: id })
-                    }
-                  >
-                    Seek {id} backing
-                  </Btn>
-                ))}
-              </div>
             </>
           )}
+          <div className="button-pair">
+            {Object.keys(s.countries)
+              .filter((id) => ![active.from, active.to, s.player].includes(id))
+              .map((id) => (
+                <Btn
+                  key={id}
+                  why={
+                    s.day >= active.day + 10 || relation(s, s.player, id) < 15
+                      ? "Not aligned with your government."
+                      : [
+                            ...active.supporters,
+                            ...(active.defenders ?? []),
+                          ].includes(id)
+                        ? "Already backing this play."
+                        : c.treasury < 15
+                          ? "Requires 15 credits."
+                          : null
+                  }
+                  onClick={() =>
+                    send({ type: "backing", id: active.id, to: id })
+                  }
+                >
+                  Seek {id} backing
+                </Btn>
+              ))}
+          </div>
           <Btn
             primary
             why={
@@ -1408,9 +1533,10 @@ function PlayBuilder({
         </>
       )}
       <p className="hint">
-        Backing and compensation affect the visible score. A play moves from
-        demands to bargaining and countdown; it can expire peacefully. Ceasefire
-        proposals cannot declare war.
+        A negotiated agreement enforces the initiating primary demand. Backing
+        down enforces the opposing primary demand without compensation.
+        Secondary demands require victory in war. Unresolved plays expire
+        peacefully; declaring war is an explicit choice.
       </p>
     </div>
   );

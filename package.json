@@ -1,6 +1,6 @@
 {
   "name": "fault-lines",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A grand strategy game running on web",
   "main": "index.js",
   "scripts": {
