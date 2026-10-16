@@ -2,7 +2,9 @@
 
 Read docs/STATUS.md first, then only the documents needed for your task.
 
+- Latest direction: docs/REDESIGN.md; research coverage: docs/VICTORIA3_RESEARCH.md
 - Scope and acceptance: docs/FIRST_BUILD.md
+- National economy/politics rules: docs/NATIONAL_SYSTEMS.md
 - Simulation rules: docs/SYSTEMS.md; src/engine.ts is authoritative implementation.
 - Architecture and commands: docs/ARCHITECTURE.md
 - Historical caveats and sources: docs/SCENARIO.md, docs/DATA.md

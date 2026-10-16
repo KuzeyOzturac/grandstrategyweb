@@ -1,3 +1,5 @@
+import CommandPanel, { type PanelTab } from "./CommandPanel";
+import { society } from "./society";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { geoMercator, geoPath, geoGraticule10 } from "d3-geo";
 import {
@@ -16,7 +18,6 @@ import {
   UploadIcon,
   Cross1Icon,
   InfoCircledIcon,
-  CheckIcon,
   TriangleRightIcon,
   LayersIcon,
 } from "@radix-ui/react-icons";
@@ -27,49 +28,19 @@ import {
   type MapData,
   type MapFeature,
 } from "./scenario";
-import {
-  acceptance,
-  atWar,
-  relation,
-  deserialize,
-  type State,
-  type Army,
-  type Command,
-} from "./engine";
-type Tab = "overview" | "diplomacy" | "military" | "economy" | "journal";
+import { relation, deserialize, type State, type Command } from "./engine";
+type Tab = PanelTab;
 const SAVE = "fault-lines-v1";
 const num = (v: number) => Math.round(v).toLocaleString("en-GB");
 const tabs: { id: Tab; label: string; icon: typeof GlobeIcon }[] = [
   { id: "overview", label: "Situation", icon: GlobeIcon },
   { id: "diplomacy", label: "Diplomacy", icon: ReaderIcon },
-  { id: "military", label: "Armed forces", icon: TargetIcon },
-  { id: "economy", label: "Economy", icon: BackpackIcon },
+  { id: "military", label: "Military fronts", icon: TargetIcon },
+  { id: "economy", label: "Production", icon: BackpackIcon },
+  { id: "market", label: "Market", icon: LayersIcon },
+  { id: "politics", label: "Politics", icon: ReaderIcon },
   { id: "journal", label: "Journal", icon: DashboardIcon },
 ];
-function Meter({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: number;
-  detail?: string;
-}) {
-  return (
-    <div className="meter">
-      <div>
-        <span>{label}</span>
-        <b>
-          {num(value)}
-          {detail ?? "%"}
-        </b>
-      </div>
-      <span className="track">
-        <span style={{ transform: `scaleX(${Math.min(1, value / 100)})` }} />
-      </span>
-    </div>
-  );
-}
 function Action({
   children,
   onClick,
@@ -105,10 +76,8 @@ export default function App() {
     [guided, setGuided] = useState(true),
     [tab, setTab] = useState<Tab>("overview");
   const [selected, setSelected] = useState<string | null>(null),
-    [armyId, setArmyId] = useState<string | null>(null),
     [target, setTarget] = useState("SYR"),
-    [overlay, setOverlay] = useState("political"),
-    [order, setOrder] = useState<"advance" | "move" | "front" | null>(null);
+    [overlay, setOverlay] = useState("political");
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(
       null,
     ),
@@ -116,14 +85,15 @@ export default function App() {
     [zoom, setZoom] = useState(1),
     [pan, setPan] = useState({ x: 0, y: 0 }),
     [global, setGlobal] = useState(false),
-    [offer, setOffer] = useState(65),
-    [demand, setDemand] = useState("access"),
     [tutorial, setTutorial] = useState(0),
     [journalOpen, setJournalOpen] = useState(true),
-    [hasSave, setHasSave] = useState(false);
+    [hasSave, setHasSave] = useState(false),
+    [outside, setOutside] = useState<string | null>(null),
+    [hoverCountry, setHoverCountry] = useState<string | null>(null);
   const worker = useRef<Worker | null>(null),
     stateRef = useRef<State | null>(null),
     file = useRef<HTMLInputElement>(null),
+    panelRef = useRef<HTMLElement>(null),
     drag = useRef<{
       x: number;
       y: number;
@@ -239,7 +209,6 @@ export default function App() {
       }
       if (["1", "2", "3"].includes(e.key)) changeSpeed(+e.key);
       if (e.key === "Escape") {
-        setOrder(null);
         setShowHelp(false);
       }
       if (e.key.toLowerCase() === "s" && (e.ctrlKey || e.metaKey)) {
@@ -267,11 +236,10 @@ export default function App() {
     }
     worker.current?.postMessage({ type: "init", map, player: choice, guided });
     setPicker(false);
+    setOutside(null);
     setSelected(null);
-    setArmyId(null);
     setTab("overview");
     setTutorial(0);
-    setOrder(null);
     setTarget(choice === "SYR" ? "OPP" : "SYR");
     setGlobal(false);
     setZoom(1);
@@ -293,14 +261,15 @@ export default function App() {
         });
       } else worker.current?.postMessage({ type: "load", text });
       setPicker(false);
-      setArmyId(null);
-      setOrder(null);
       setTarget(s.player === "SYR" ? "OPP" : "SYR");
     } catch (e) {
       notify(e instanceof Error ? e.message : String(e), true);
     }
     if (file.current) file.current.value = "";
   };
+  useEffect(() => {
+    panelRef.current?.scrollTo({ top: 0 });
+  }, [tab, target, outside]);
   const projection = useMemo(
     () =>
       geoMercator()
@@ -314,31 +283,22 @@ export default function App() {
     () => Object.fromEntries(map?.features.map((f) => [f.id, f]) ?? []),
     [map],
   );
-  const c = state?.countries[state.player],
-    province = selected ? state?.provinces[selected] : null,
-    feature = selected ? featureById[selected] : null,
-    army = state?.armies.find((a) => a.id === armyId);
-  const ownArmies =
-    state?.armies.filter((a) => a.country === state.player) ?? [];
-  const crises =
-    state?.crises.filter(
-      (x) =>
-        x.status === "negotiating" &&
-        (x.from === state.player || x.to === state.player),
-    ) ?? [];
+  const c = state?.countries[state.player];
+  const inspectCountry = (id: string, label?: string) => {
+    if (drag.current?.moved || !state) return;
+    if (!state.countries[id]) {
+      setOutside(label ?? id);
+      setTab("diplomacy");
+      return;
+    }
+    setOutside(null);
+    setTarget(id);
+    setTab(id === state.player ? "overview" : "diplomacy");
+  };
   const selectProvince = (f: MapFeature) => {
     if (drag.current?.moved) return;
     setSelected(f.id);
-    if (order && army) {
-      send({ type: "order", army: army.id, province: f.id, stance: order });
-      setOrder(null);
-    } else if (state && f.properties.country !== state.player)
-      setTarget(state.provinces[f.id].controller);
-  };
-  const focusArmy = (a: Army) => {
-    setArmyId(a.id);
-    setSelected(a.province);
-    setTab("military");
+    inspectCountry(state?.provinces[f.id]?.controller ?? f.properties.country);
   };
   const mapFill = (f: MapFeature) => {
     if (!state) return META[f.properties.country]?.color ?? "#61716d";
@@ -373,24 +333,24 @@ export default function App() {
   };
   const tutorialSteps = [
     {
-      title: "Read your position",
-      text: "Select a province on the map. Situation shows who owns it, who controls it and what can be built there.",
+      title: "Click a country",
+      text: "Click a foreign country to open its dossier and diplomatic actions. Click your own territory to inspect a state. Right-click works too.",
     },
     {
-      title: "Make a proposal",
-      text: "Open Diplomacy. Choose a target and an access or ceasefire proposal. Compensation and international backing change acceptance.",
+      title: "Follow the market",
+      text: "Open Market. High prices reveal shortages. Import a partner’s surplus or construct domestic production to improve household living standards.",
     },
     {
-      title: "Prepare an army",
-      text: "Open Armed forces, select an army, then assign a border or objective. Orders require access or war; supply limits combat power.",
+      title: "Shape your society",
+      text: "Politics shows interest groups, government legitimacy, laws and research. Reforms take time and need support; decisions have visible consequences.",
     },
     {
-      title: "Fund the campaign",
-      text: "Open Economy. Adjust spending or invest in an owned province. High taxes and mobilization have political costs.",
+      title: "Build with a purpose",
+      text: "Production holds the national construction queue. Choose a state, add facilities, and prioritize projects. New output affects prices and employment.",
     },
     {
-      title: "Observe the consequences",
-      text: "Use Play or Next day to advance. Review the journal, negotiate a settlement, and save your campaign.",
+      title: "Let commanders handle war",
+      text: "Military fronts has advance, defend and standby orders. Diplomacy can secure a ceasefire. Space pauses; 1–3 set speed. Save under Journal.",
     },
   ];
   if (loadError)
@@ -446,22 +406,22 @@ export default function App() {
                 title="Abstract budget credits. Daily revenue minus spending."
               />
               <Resource
-                label="Fuel"
-                value={num(c.fuel)}
-                sub="stockpile"
-                title="Movement and air missions consume fuel; sanctions reduce replenishment."
+                label="Living standard"
+                value={state?.society ? society(state).living.toFixed(1) : "—"}
+                sub="households"
+                title="Wages, prices, taxes and social services shape living standards."
               />
               <Resource
-                label="Equipment"
-                value={num(c.equipment)}
-                sub="stockpile"
-                title="Defence allocation produces equipment. Reinforcement, combat and aid consume it."
+                label="Construction"
+                value={String(state?.society ? society(state).queue.length : 0)}
+                sub="projects"
+                title="Open Production to manage your construction queue."
               />
               <Resource
-                label="Support"
-                value={`${num(c.support)}%`}
-                sub="domestic"
-                title="Taxes, mobilization and conflict affect public support."
+                label="Legitimacy"
+                value={`${num(c.legitimacy)}%`}
+                sub="government"
+                title="Government composition and political support affect reforms."
               />
             </div>
             <div className="clock">
@@ -509,7 +469,12 @@ export default function App() {
             <button
               key={t.id}
               className={tab === t.id ? "active" : ""}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                setOutside(null);
+                if (t.id === "diplomacy" && target === state?.player)
+                  setTarget(state.player === "SYR" ? "OPP" : "SYR");
+                setTab(t.id);
+              }}
               title={t.label}
               aria-label={t.label}
             >
@@ -541,11 +506,9 @@ export default function App() {
               </span>
               <h1>{global ? "The world" : "Middle East"}</h1>
               <p>
-                {order
-                  ? "Select a province to issue your order"
-                  : overlay === "political"
-                    ? "Territorial control"
-                    : "Strategic overlay"}{" "}
+                {overlay === "political"
+                  ? "Click a country to interact"
+                  : "Strategic overlay"}{" "}
                 <span> / {speed ? "Live" : "Paused"}</span>
               </p>
             </div>
@@ -652,6 +615,20 @@ export default function App() {
                     stroke="#91a1a0"
                     strokeWidth=".6"
                     opacity=".7"
+                    role="button"
+                    tabIndex={global ? 0 : -1}
+                    className="world-country"
+                    data-country={f.id}
+                    aria-label={`Inspect ${f.properties.name}`}
+                    onClick={() => inspectCountry(f.id, f.properties.name)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      inspectCountry(f.id, f.properties.name);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter")
+                        inspectCountry(f.id, f.properties.name);
+                    }}
                   >
                     <title>
                       {f.properties.name} · Outside the active simulation where
@@ -674,11 +651,22 @@ export default function App() {
                           : 0.65
                     }
                     vectorEffect="non-scaling-stroke"
-                    className={`province ${selected === f.id ? "selected" : ""}`}
+                    className={`province ${selected === f.id ? "selected" : ""} ${state?.provinces[f.id]?.controller === target && tab === "diplomacy" ? "country-selected" : ""} ${hoverCountry === (state?.provinces[f.id]?.controller ?? f.properties.country) ? "country-hover" : ""}`}
                     tabIndex={global ? -1 : 0}
                     role="button"
                     aria-label={`${f.properties.name}, ${name(state?.provinces[f.id]?.controller ?? f.properties.country)}`}
                     onClick={() => selectProvince(f)}
+                    onMouseEnter={() =>
+                      setHoverCountry(
+                        state?.provinces[f.id]?.controller ??
+                          f.properties.country,
+                      )
+                    }
+                    onMouseLeave={() => setHoverCountry(null)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      selectProvince(f);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter") selectProvince(f);
                     }}
@@ -694,7 +682,7 @@ export default function App() {
                 ))}
                 {Object.entries(META)
                   .filter(
-                    ([id, m]) =>
+                    ([id]) =>
                       ![
                         "OPP",
                         "USA",
@@ -780,82 +768,103 @@ export default function App() {
                       );
                     })}
                 {!global &&
-                  state?.armies
-                    .filter(
-                      (a) => a.country === state.player || sVisible(state, a),
-                    )
-                    .map((a, i) => {
-                      const p = projection(
-                        featureById[a.province].properties.center,
-                      )!;
-                      const offset = (i % 2) * 8;
-                      const end = a.objective
-                        ? projection(featureById[a.objective].properties.center)
-                        : null;
-                      return (
-                        <g key={a.id}>
-                          {end && a.country === state.player && (
-                            <path
-                              d={`M${p[0]},${p[1]} Q${(p[0] + end[0]) / 2 + 12},${(p[1] + end[1]) / 2 - 12} ${end[0]},${end[1]}`}
-                              className="order-line"
-                              markerEnd="url(#arrow)"
-                            />
-                          )}
-                          <g
-                            className={`army-counter ${armyId === a.id ? "army-selected" : ""}`}
-                            transform={`translate(${p[0] - 9 + offset},${p[1] - 5 + offset})`}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`${a.name}${a.country === state.player ? "" : " estimated position"}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!drag.current?.moved) {
-                                if (a.country === state.player) focusArmy(a);
-                                else {
-                                  setSelected(a.province);
-                                  setTarget(a.country);
-                                  setTab("overview");
-                                }
-                              }
-                            }}
-                            onKeyDown={(e) => {
-                              if (
-                                e.key === "Enter" &&
-                                a.country === state.player
-                              )
-                                focusArmy(a);
-                            }}
-                          >
-                            <rect
-                              width="23"
-                              height="15"
-                              rx="1"
-                              fill={
-                                a.country === state.player
-                                  ? "#243b3b"
-                                  : "#654e40"
-                              }
-                              stroke={armyId === a.id ? "#f0dab0" : "#e0d6bc"}
+                  state?.wars.map(([a, b]) => {
+                    const front = map.features.filter(
+                      (f) =>
+                        state.provinces[f.id].controller === a &&
+                        map.adjacency[f.id].some(
+                          (id) => state.provinces[id].controller === b,
+                        ),
+                    );
+                    if (!front.length) return null;
+                    return (
+                      <g key={`${a}-${b}`} className="strategic-front">
+                        {front.map((f) => {
+                          const pt = projection(f.properties.center)!;
+                          return (
+                            <circle
+                              key={f.id}
+                              cx={pt[0]}
+                              cy={pt[1]}
+                              r="3"
+                              fill="#df9c82"
+                              stroke="#694838"
                               strokeWidth="1"
                             />
-                            <path
-                              d="M4 3L18 12M18 3L4 12"
-                              stroke="#dfdbca"
-                              strokeWidth=".8"
-                            />
-                            <title>
-                              {a.name} ·{" "}
-                              {a.country === state.player
-                                ? `${num(a.strength)} strength / ${num(a.supply)} supply`
-                                : "Estimated location; strength uncertain"}
-                            </title>
-                          </g>
+                          );
+                        })}
+                        <g
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Inspect ${name(a)} ${name(b)} front`}
+                          onClick={() => {
+                            setTarget(a === state.player ? b : a);
+                            setTab(
+                              [a, b].includes(state.player)
+                                ? "military"
+                                : "diplomacy",
+                            );
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              setTarget(a === state.player ? b : a);
+                              setTab(
+                                [a, b].includes(state.player)
+                                  ? "military"
+                                  : "diplomacy",
+                              );
+                            }
+                          }}
+                          transform={`translate(${projection(front[0].properties.center)![0]},${projection(front[0].properties.center)![1] - 12})`}
+                        >
+                          <circle r="8" fill="#503f34" stroke="#e0bc85" />
+                          <path d="M-3 -3L3 3M3 -3L-3 3" stroke="#e8d6b8" />
                         </g>
-                      );
-                    })}
+                      </g>
+                    );
+                  })}
               </g>
             </svg>
           )}
+          {state && hoverCountry && (
+            <div className="country-tooltip">
+              <b>{name(hoverCountry)}</b>
+              <span>
+                {hoverCountry === state.player
+                  ? "Click to inspect state"
+                  : "Click to interact with this country"}
+              </span>
+            </div>
+          )}
+          {state?.society && society(state).decision && (
+            <button
+              className="attention-banner"
+              onClick={() => setTab("politics")}
+            >
+              Decision awaits: {society(state).decision!.title}
+              <ChevronRightIcon />
+            </button>
+          )}
+          {state &&
+            !(state.society && society(state).decision) &&
+            state.crises.some(
+              (cr) => cr.status === "negotiating" && cr.to === state.player,
+            ) && (
+              <button
+                className="attention-banner"
+                onClick={() => {
+                  const cr = state.crises.find(
+                    (cr) =>
+                      cr.status === "negotiating" && cr.to === state.player,
+                  )!;
+                  setTarget(cr.from);
+                  setTab("diplomacy");
+                }}
+              >
+                Diplomatic proposal needs a response
+                <ChevronRightIcon />
+              </button>
+            )}
           <div className="map-footer">
             <div className="legend">
               <i style={{ background: META.OPP.color }} /> Opposition control{" "}
@@ -908,16 +917,6 @@ export default function App() {
               </button>
             </div>
           </div>
-          {order && (
-            <div className="order-banner">
-              {order === "front"
-                ? "Select a friendly border province"
-                : order === "move"
-                  ? "Select a province with legal military access"
-                  : "Select an objective province"}
-              <button onClick={() => setOrder(null)}>Cancel</button>
-            </div>
-          )}
           {state?.guided && !state.defeated && tutorial < 5 && (
             <div className="tutorial">
               <span className="eyebrow">
@@ -963,748 +962,50 @@ export default function App() {
             </button>
           )}
         </main>
-        <aside className="panel" aria-label="Country command panel">
-          {state && c ? (
-            <>
-              <div className="panel-heading">
-                <span className="eyebrow">National command</span>
-                <h2>{tabs.find((t) => t.id === tab)?.label}</h2>
-                <span className={`status-dot ${speed ? "live" : ""}`}>
-                  {speed ? "Simulation running" : "Orders while paused"}
-                </span>
-              </div>
-              {tab === "overview" && (
-                <>
-                  <div className="section">
-                    <span className="eyebrow">Strategic position</span>
-                    <h3>{name(state.player)}</h3>
-                    <p>{META[state.player].blurb}</p>
-                    <Meter label="Government stability" value={c.stability} />
-                    <Meter label="Public support" value={c.support} />
-                    <Meter label="Legitimacy" value={c.legitimacy} />
-                    <div className="stat-line">
-                      <span>Regional escalation</span>
-                      <b>{num(state.escalation)} / 100</b>
-                    </div>
-                    <p className="hint">
-                      {state.escalation > 65
-                        ? "High escalation signals a wider conflict. Review guarantees before intervening."
-                        : "Guarantees, intervention and maritime pressure raise escalation."}
-                    </p>
-                  </div>
-                  <div className="section">
-                    <span className="eyebrow">Campaign objective</span>
-                    <h3>
-                      {state.player === "SYR"
-                        ? "Stabilize the country"
-                        : "Shape a sustainable settlement"}
-                    </h3>
-                    <p>
-                      Secure an agreement, sustain your forces, and bring the
-                      Syrian conflict to a ceasefire. You may continue
-                      afterward.
-                    </p>
-                    {[
-                      ["agreement", "Reach a diplomatic agreement"],
-                      ["aid", "Deliver foreign aid"],
-                      ["settlement", "Secure a ceasefire"],
-                    ]
-                      .filter(([id]) => state.player !== "SYR" || id !== "aid")
-                      .map(([id, label]) => (
-                        <div
-                          className={`objective ${state.achievements.includes(id) ? "complete" : ""}`}
-                          key={id}
-                        >
-                          {state.achievements.includes(id) ? (
-                            <CheckIcon />
-                          ) : (
-                            <span className="objective-circle" />
-                          )}
-                          {label}
-                        </div>
-                      ))}
-                    <Action onClick={() => setTab("diplomacy")}>
-                      Open diplomacy <ChevronRightIcon />
-                    </Action>
-                  </div>
-                  <div className="section">
-                    <span className="eyebrow">Selected territory</span>
-                    {province && feature ? (
-                      <>
-                        <h3>{feature.properties.name}</h3>
-                        <div className="stat-line">
-                          <span>Owner / controller</span>
-                          <b>
-                            {province.owner} / {province.controller}
-                          </b>
-                        </div>
-                        <div className="stat-line">
-                          <span>Terrain</span>
-                          <b>{province.terrain}</b>
-                        </div>
-                        <div className="stat-line">
-                          <span>Infrastructure / damage</span>
-                          <b>
-                            {num(province.infra)} / {num(province.damage)}
-                          </b>
-                        </div>
-                        <div className="stat-line">
-                          <span>Industry / depots</span>
-                          <b>
-                            {province.industry} / {province.depot}
-                          </b>
-                        </div>
-                        <Action onClick={() => setTab("economy")}>
-                          Manage investment
-                        </Action>
-                      </>
-                    ) : (
-                      <p>
-                        Select a province to inspect its control, infrastructure
-                        and industry.
-                      </p>
-                    )}
-                  </div>
-                  <div className="section">
-                    <div className="stat-line">
-                      <span>Civilian harm index</span>
-                      <b>{state.harm.toFixed(1)}</b>
-                    </div>
-                    <div className="stat-line">
-                      <span>Displacement index</span>
-                      <b>{state.displaced.toFixed(1)}</b>
-                    </div>
-                    <p className="hint">
-                      Abstract campaign indices, not historical casualty counts.
-                      Fighting damages infrastructure and public support.
-                    </p>
-                  </div>
-                </>
-              )}
-              {tab === "diplomacy" && (
-                <>
-                  <div className="section">
-                    <label className="field">
-                      Negotiation partner
-                      <select
-                        aria-label="Diplomatic target"
-                        value={target}
-                        onChange={(e) => setTarget(e.target.value)}
-                      >
-                        {Object.keys(META)
-                          .filter((id) => id !== state.player)
-                          .map((id) => (
-                            <option key={id} value={id}>
-                              {name(id)}
-                            </option>
-                          ))}
-                      </select>
-                    </label>
-                    <div className="stat-line">
-                      <span>Relations</span>
-                      <b>
-                        {relation(state, state.player, target) > 0 ? "+" : ""}
-                        {relation(state, state.player, target)}
-                      </b>
-                    </div>
-                    <div className="stat-line">
-                      <span>Status</span>
-                      <b
-                        className={
-                          atWar(state, state.player, target) ? "danger" : ""
-                        }
-                      >
-                        {atWar(state, state.player, target)
-                          ? "At war"
-                          : "At peace"}
-                      </b>
-                    </div>
-                    <p className="hint">
-                      Agreements use visible acceptance rules. A crisis expires
-                      after 14 days unless settled or escalated.
-                    </p>
-                  </div>
-                  {crises.map((cr) => {
-                    const a = acceptance(state, cr);
-                    return (
-                      <div className="section crisis" key={cr.id}>
-                        <span className="eyebrow">
-                          Active crisis · {Math.max(0, cr.deadline - state.day)}{" "}
-                          days left
-                        </span>
-                        <h3>
-                          {name(cr.from)} → {name(cr.to)}
-                        </h3>
-                        <p>
-                          Demand: {cr.demand} · Compensation: {cr.offer} credits
-                        </p>
-                        <div className="acceptance">
-                          <span>Acceptance</span>
-                          <b className={a.score >= 0 ? "success" : "danger"}>
-                            {a.score >= 0 ? "+" : ""}
-                            {a.score} ·{" "}
-                            {a.score >= 0 ? "Will accept" : "Will refuse"}
-                          </b>
-                        </div>
-                        {a.reasons.map((r) => (
-                          <div className="reason" key={r.label}>
-                            <span>{r.label}</span>
-                            <b>
-                              {r.value > 0 ? "+" : ""}
-                              {r.value}
-                            </b>
-                          </div>
-                        ))}
-                        {cr.from === state.player && (
-                          <>
-                            <Action
-                              onClick={() =>
-                                send({ type: "offer", id: cr.id, offer })
-                              }
-                            >
-                              Revise offer to {offer}
-                            </Action>
-                            <div className="button-pair">
-                              <Action
-                                onClick={() =>
-                                  send({
-                                    type: "backing",
-                                    id: cr.id,
-                                    to: "USA",
-                                  })
-                                }
-                              >
-                                Seek US backing
-                              </Action>
-                              <Action
-                                onClick={() =>
-                                  send({
-                                    type: "backing",
-                                    id: cr.id,
-                                    to: "RUS",
-                                  })
-                                }
-                              >
-                                Seek Russian backing
-                              </Action>
-                            </div>
-                          </>
-                        )}
-                        <Action
-                          className="primary"
-                          onClick={() =>
-                            send({
-                              type: "resolve",
-                              id: cr.id,
-                              action: "negotiate",
-                            })
-                          }
-                        >
-                          Conclude agreement
-                        </Action>
-                        <div className="button-pair">
-                          <Action
-                            onClick={() =>
-                              send({
-                                type: "resolve",
-                                id: cr.id,
-                                action: "backdown",
-                              })
-                            }
-                          >
-                            Back down
-                          </Action>
-                          {cr.from === state.player &&
-                            cr.demand !== "ceasefire" && (
-                              <Action
-                                className="danger-button"
-                                onClick={() =>
-                                  send({
-                                    type: "resolve",
-                                    id: cr.id,
-                                    action: "escalate",
-                                  })
-                                }
-                              >
-                                Escalate to war
-                              </Action>
-                            )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <div className="section">
-                    <h3>Open negotiations</h3>
-                    <label className="field">
-                      Demand
-                      <select
-                        aria-label="Crisis demand"
-                        value={demand}
-                        onChange={(e) => setDemand(e.target.value)}
-                      >
-                        <option value="access">Military access</option>
-                        <option value="ceasefire">Ceasefire mediation</option>
-                        <option value="withdrawal">
-                          Withdraw from my territory
-                        </option>
-                      </select>
-                    </label>
-                    <label className="field">
-                      Compensation · {offer} credits
-                      <input
-                        aria-label="Compensation"
-                        type="range"
-                        min="0"
-                        max="150"
-                        step="5"
-                        value={offer}
-                        onChange={(e) => setOffer(+e.target.value)}
-                      />
-                    </label>
-                    <Action
-                      className="primary"
-                      disabled={crises.length > 0}
-                      onClick={() =>
-                        send({ type: "crisis", to: target, demand, offer })
-                      }
-                    >
-                      Propose diplomatic crisis
-                    </Action>
-                  </div>
-                  <div className="section">
-                    <h3>Agreements & pressure</h3>
-                    <div className="button-pair">
-                      <Action
-                        onClick={() => send({ type: "trade", to: target })}
-                      >
-                        Trade agreement · 10
-                      </Action>
-                      <Action
-                        onClick={() => send({ type: "access", to: target })}
-                      >
-                        Request access · 10
-                      </Action>
-                      <Action onClick={() => send({ type: "aid", to: target })}>
-                        Equipment aid · 20
-                      </Action>
-                      <Action
-                        onClick={() => send({ type: "guarantee", to: target })}
-                      >
-                        Guarantee · 15
-                      </Action>
-                      <Action
-                        onClick={() => send({ type: "sanction", to: target })}
-                      >
-                        Sanctions · 15
-                      </Action>
-                      <Action
-                        onClick={() => send({ type: "blockade", to: target })}
-                      >
-                        Maritime pressure · 15
-                      </Action>
-                    </div>
-                    <p className="hint">
-                      Credits are game units. Aid also costs equipment and takes
-                      5 days. Pressure and guarantees have daily upkeep.
-                    </p>
-                  </div>
-                  <div className="section">
-                    <h3>Active commitments</h3>
-                    {state.treaties
-                      .filter(
-                        (t) => t.a === state.player || t.b === state.player,
-                      )
-                      .map((t, i) => (
-                        <div className="commitment" key={i}>
-                          <span>
-                            {t.kind === "blockade"
-                              ? "Maritime pressure"
-                              : t.kind}
-                            <small>
-                              {name(t.a)} → {name(t.b)}
-                            </small>
-                          </span>
-                          <b>
-                            {t.until > 9999
-                              ? "Standing"
-                              : `${t.until - state.day}d`}
-                          </b>
-                        </div>
-                      ))}
-                    {state.aid
-                      .filter(
-                        (a) => a.from === state.player || a.to === state.player,
-                      )
-                      .map((a, i) => (
-                        <p key={i}>
-                          Aid convoy → {name(a.to)} · {a.days} days
-                        </p>
-                      ))}
-                  </div>
-                </>
-              )}
-              {tab === "military" && (
-                <>
-                  <div className="section">
-                    <h3>Army command</h3>
-                    <p>
-                      Select a formation. Assign an objective or move it through
-                      friendly territory. Attacks require war; foreign movement
-                      requires access.
-                    </p>
-                    <div className="army-list">
-                      {ownArmies.length ? (
-                        ownArmies.map((a) => (
-                          <button
-                            className={armyId === a.id ? "active" : ""}
-                            onClick={() => focusArmy(a)}
-                            key={a.id}
-                          >
-                            <span>
-                              <TargetIcon />
-                              {a.name}
-                            </span>
-                            <small>
-                              {featureById[a.province]?.properties.name} ·{" "}
-                              {num(a.supply)}% supply
-                            </small>
-                          </button>
-                        ))
-                      ) : (
-                        <p>No formations remain.</p>
-                      )}
-                    </div>
-                  </div>
-                  {army && army.country === state.player && (
-                    <div className="section">
-                      <span className="eyebrow">Selected formation</span>
-                      <h3>{army.name}</h3>
-                      <Meter label="Strength" value={army.strength} />
-                      <Meter label="Organization" value={army.org} />
-                      <Meter label="Supply" value={army.supply} />
-                      <div className="stat-line">
-                        <span>Order</span>
-                        <b>{army.stance}</b>
-                      </div>
-                      {army.objective && (
-                        <p className="hint">
-                          Objective:{" "}
-                          {featureById[army.objective]?.properties.name}
-                        </p>
-                      )}
-                      <div className="button-pair">
-                        <Action
-                          className="primary"
-                          onClick={() => {
-                            setOrder("advance");
-                            setTutorial(5);
-                          }}
-                        >
-                          Set objective
-                        </Action>
-                        <Action
-                          onClick={() => {
-                            setOrder("front");
-                            setTutorial(5);
-                          }}
-                        >
-                          Assign border
-                        </Action>
-                        <Action
-                          onClick={() => {
-                            setOrder("move");
-                            setTutorial(5);
-                          }}
-                        >
-                          Move
-                        </Action>
-                        <Action
-                          onClick={() =>
-                            send({
-                              type: "order",
-                              army: army.id,
-                              stance: "hold",
-                            })
-                          }
-                        >
-                          Halt
-                        </Action>
-                      </div>
-                      <p className="hint">
-                        Border assignment deploys to a friendly border, then
-                        attacks an adjacent enemy if at war. Objectives route
-                        automatically. Isolated forces lose organization.
-                      </p>
-                    </div>
-                  )}
-                  <div className="section">
-                    <h3>Air operations</h3>
-                    <label className="field">
-                      Regional mission
-                      <select
-                        aria-label="Air mission"
-                        value={c.air}
-                        onChange={(e) =>
-                          send({
-                            type: "policy",
-                            key: "air",
-                            value: e.target.value,
-                          })
-                        }
-                      >
-                        <option value="standby">Standby · preserve fuel</option>
-                        <option value="recon">
-                          Reconnaissance · reveal estimates
-                        </option>
-                        <option value="support">
-                          Ground support · combat bonus
-                        </option>
-                      </select>
-                    </label>
-                    <p className="hint">
-                      Active missions consume 0.35 fuel/day. Support adds 18%
-                      attacking power when fuel is available. Recon expands
-                      visible enemy positions.
-                    </p>
-                    <Action
-                      onClick={() =>
-                        send({
-                          type: "policy",
-                          key: "mobilized",
-                          value: !c.mobilized,
-                        })
-                      }
-                    >
-                      {c.mobilized ? "Demobilize" : "Mobilize reserves"}
-                    </Action>
-                    <p className="hint">
-                      Mobilization increases reinforcement and costs 1.2
-                      credits/day, civilian goods and public support.
-                    </p>
-                  </div>
-                </>
-              )}
-              {tab === "economy" && (
-                <>
-                  <div className="section">
-                    <h3>National accounts</h3>
-                    <div className="stat-line">
-                      <span>Daily revenue</span>
-                      <b className="success">+{c.income.toFixed(2)}</b>
-                    </div>
-                    <div className="stat-line">
-                      <span>Daily spending</span>
-                      <b>−{c.expense.toFixed(2)}</b>
-                    </div>
-                    <div className="stat-line">
-                      <span>Public debt</span>
-                      <b>{num(c.debt)}</b>
-                    </div>
-                    <label className="field">
-                      Tax effort · {c.tax}%
-                      <input
-                        type="range"
-                        aria-label="Tax effort"
-                        min="10"
-                        max="70"
-                        step="5"
-                        value={c.tax}
-                        onChange={(e) =>
-                          send({
-                            type: "policy",
-                            key: "tax",
-                            value: +e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="field">
-                      Defence allocation · {c.defence}%
-                      <input
-                        type="range"
-                        aria-label="Defence allocation"
-                        min="10"
-                        max="70"
-                        step="5"
-                        value={c.defence}
-                        onChange={(e) =>
-                          send({
-                            type: "policy",
-                            key: "defence",
-                            value: +e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                    <p className="hint">
-                      Taxes above 40 reduce support. Defence creates equipment
-                      and competes with civilian goods. Deficits become
-                      interest-bearing debt.
-                    </p>
-                    <Meter
-                      label="Energy stock"
-                      value={c.energy}
-                      detail=" units"
-                    />
-                    <Meter
-                      label="Civilian goods"
-                      value={c.goods}
-                      detail=" units"
-                    />
-                  </div>
-                  <div className="section">
-                    <h3>Provincial investment</h3>
-                    {province && feature ? (
-                      <>
-                        <p>{feature.properties.name}</p>
-                        <div className="stat-line">
-                          <span>Industry / infrastructure</span>
-                          <b>
-                            {province.industry} / {num(province.infra)}
-                          </b>
-                        </div>
-                        {province.project ? (
-                          <p className="construction">
-                            {province.project.kind} · {province.project.days}{" "}
-                            days remaining
-                          </p>
-                        ) : (
-                          <>
-                            <Action
-                              disabled={
-                                province.owner !== state.player ||
-                                province.controller !== state.player
-                              }
-                              onClick={() =>
-                                send({
-                                  type: "build",
-                                  province: selected,
-                                  kind: "industry",
-                                })
-                              }
-                            >
-                              Expand civilian industry · 35 / 25d
-                            </Action>
-                            <Action
-                              disabled={
-                                province.owner !== state.player ||
-                                province.controller !== state.player
-                              }
-                              onClick={() =>
-                                send({
-                                  type: "build",
-                                  province: selected,
-                                  kind: "depot",
-                                })
-                              }
-                            >
-                              Improve supply depot · 20 / 15d
-                            </Action>
-                            <Action
-                              disabled={
-                                province.owner !== state.player ||
-                                province.controller !== state.player
-                              }
-                              onClick={() =>
-                                send({
-                                  type: "build",
-                                  province: selected,
-                                  kind: "equipment",
-                                })
-                              }
-                            >
-                              Equipment production run · 25 / 15d
-                            </Action>
-                          </>
-                        )}
-                      </>
-                    ) : (
-                      <p>Select an owned province on the map to invest.</p>
-                    )}
-                  </div>
-                </>
-              )}
-              {tab === "journal" && (
-                <>
-                  <div className="section">
-                    <h3>Campaign record</h3>
-                    <p>
-                      Day {state.day} · {state.commands} issued commands
-                    </p>
-                    <div className="button-pair">
-                      <Action
-                        onClick={() =>
-                          worker.current?.postMessage({ type: "save" })
-                        }
-                      >
-                        Save locally
-                      </Action>
-                      <Action
-                        onClick={() =>
-                          worker.current?.postMessage({
-                            type: "save",
-                            export: true,
-                          })
-                        }
-                      >
-                        Export JSON
-                      </Action>
-                      <Action onClick={() => file.current?.click()}>
-                        Import JSON
-                      </Action>
-                      <Action
-                        disabled={!hasSave}
-                        onClick={() => {
-                          try {
-                            const text = localStorage.getItem(SAVE);
-                            if (text)
-                              worker.current?.postMessage({
-                                type: "load",
-                                text,
-                              });
-                          } catch {
-                            notify("Storage unavailable.", true);
-                          }
-                        }}
-                      >
-                        Load local save
-                      </Action>
-                    </div>
-                    <p className="hint">
-                      Autosave every 10 days. Import validates the map,
-                      references and numerical state before replacing the
-                      campaign.
-                    </p>
-                    <Action
-                      onClick={() => {
-                        changeSpeed(0);
-                        setPicker(true);
-                      }}
-                    >
-                      New campaign…
-                    </Action>
-                  </div>
-                  <div className="section">
-                    <h3>Dispatch archive</h3>
-                    {state.events.map((e, i) => (
-                      <article className="journal-entry" key={i}>
-                        <span className="eyebrow">
-                          {dateLabel(e.day)} · {e.kind}
-                        </span>
-                        <p>{e.text}</p>
-                      </article>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
+        <aside
+          ref={panelRef}
+          className="panel"
+          aria-label="Country command panel"
+        >
+          {state && state.society ? (
+            <CommandPanel
+              s={state}
+              map={map!}
+              tab={tab}
+              target={target}
+              outside={outside}
+              setTarget={(id) => {
+                setTarget(id);
+                setOutside(null);
+              }}
+              selected={selected}
+              setTab={setTab}
+              send={send}
+              save={(exp) =>
+                worker.current?.postMessage({ type: "save", export: exp })
+              }
+              load={() => {
+                try {
+                  const text = localStorage.getItem(SAVE);
+                  if (text) worker.current?.postMessage({ type: "load", text });
+                } catch {
+                  notify("Storage unavailable.", true);
+                }
+              }}
+              importFile={() => file.current?.click()}
+              newGame={() => {
+                changeSpeed(0);
+                setPicker(true);
+              }}
+              hasSave={hasSave}
+            />
           ) : (
             <div className="panel-heading">
-              <span className="eyebrow">Campaign briefing</span>
-              <h2>The balance of power</h2>
+              <span className="eyebrow">Country management</span>
+              <h2>A society in motion</h2>
               <p>
-                Diplomacy, resources and force share the same map. Choose a
-                government to begin.
+                Click a country for diplomacy. Develop production, support
+                households and navigate political reform.
               </p>
             </div>
           )}
@@ -1835,11 +1136,11 @@ export default function App() {
             </p>
             <h3>Command essentials</h3>
             <p>
-              Select provinces to inspect them. Choose an army in Armed forces,
-              then assign an objective on the map. Access permits peaceful
-              movement; war permits attacks. Supply comes from the capital,
-              operational ports and connected access routes. Depots improve
-              local capacity.
+              Click a foreign country for its dossier and diplomatic actions.
+              Click your own state to choose a construction location. In
+              Military fronts, choose advance, defend or standby; commanders
+              deploy forces and conduct battles. Manage shortages in Market,
+              queue production, and shape reforms and research under Politics.
             </p>
             <p>
               Open a diplomatic crisis to negotiate access or a ceasefire.
@@ -1851,7 +1152,7 @@ export default function App() {
             <p>
               Space pauses; 1–3 change speed. Next day advances a single paused
               day. Drag to pan and scroll to zoom. Save/export under Journal.
-              Build in owned and controlled provinces under Economy.
+              Build in owned and controlled states under Production.
             </p>
             <h3>Historical scope and limitations</h3>
             <p>
@@ -1930,13 +1231,6 @@ export default function App() {
         </div>
       )}
     </div>
-  );
-}
-function sVisible(s: State, a: Army) {
-  return (
-    a.country === "SYR" ||
-    a.country === "OPP" ||
-    s.countries[s.player].air === "recon"
   );
 }
 function Resource({

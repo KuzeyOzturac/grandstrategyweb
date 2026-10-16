@@ -27,3 +27,9 @@ Only short opacity/transform transitions, cubic-bezier(.16,1,.3,1); reduced-moti
 ## Last updated
 
 2026-10-16: established first-build atlas system.
+
+## Country-first revision
+
+Country dossiers and a 380px command panel replace the army command interface. National ribbon: treasury, living standards, construction, legitimacy. Navigation: Situation, Diplomacy, Military fronts, Production, Market, Politics, Journal. Shape-based SVG highlights only; no browser bounding-box focus rectangles. Keyboard focus uses a gold shape stroke. Native tap highlights and text selection disabled on map geometry. Foreign country click immediately opens available interactions. Disabled actions explain their prerequisite below the button.
+
+2026-10-16: added country dossiers, economic/political management, fronts, queues and trend plots.

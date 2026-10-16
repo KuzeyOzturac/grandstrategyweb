@@ -41,7 +41,7 @@ export const META: Record<
     port: [36.17, 36.59],
     playable: true,
     blurb:
-      "A border power. Balance domestic support, access negotiations and the cost of intervention.",
+      "An industrial economy reliant on imported energy. Balance household prices, political reform and regional diplomacy.",
   },
   IRN: {
     name: "Iran",
@@ -50,7 +50,7 @@ export const META: Record<
     port: [56.27, 27.18],
     playable: true,
     blurb:
-      "A regional patron. Sustain an overland supply corridor and manage sanctions and escalation.",
+      "An energy exporter under pressure. Use trade and diplomacy to sustain influence without exhausting public support.",
   },
   SYR: {
     name: "Syrian government",
@@ -59,7 +59,7 @@ export const META: Record<
     port: [35.78, 35.53],
     playable: true,
     blurb:
-      "A government under pressure. Keep supply routes open and seek a sustainable political settlement.",
+      "A society at war. Maintain supplies and public services, manage political support and negotiate a sustainable settlement.",
   },
   OPP: {
     name: "Syrian opposition",

@@ -1,3 +1,12 @@
+# Current revision verification (1.1.0)
+
+2026-10-16: 33 model/integration tests passed, including migration, markets/routes/embargo, queue/priority/refund/production, reform/upkeep/living standards, coalition/research/method unlocks, decisions, automatic fronts, obligations, incoming proposal consent and deterministic continuation. Original combat/supply/geometry/save tests and six 400-day campaigns continue to pass.
+Nine browser scenarios passed locally: three government starts; country click and shape-only focus; relations/negotiation/obligation; trade shortage relief; construction priority/cancellation; politics/reform/research/decisions; strategic fronts; saves/imports/overlays/keyboard/layout; automatic pause for new decisions. The main eight journeys ran together; the added pause journey ran separately. Typecheck and production build passed. Screenshots inspected. No game source changed after those checks.
+One new test caught a second auto-acceptance path in weekly AI diplomacy; fixed in the command gateway so incoming offers require the player's explicit response, not only at expiry.
+Hosted verification for this revision is pending publication. The earlier release record below remains historical evidence, not a claim that its browser scenarios cover the new UI.
+
+---
+
 # Verification
 
 ## Reproduce

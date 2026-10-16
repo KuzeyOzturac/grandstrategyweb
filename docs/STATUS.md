@@ -1,8 +1,16 @@
 # Status
 
-First playable release is live: https://kuzeyozturac.github.io/grandstrategyweb/
-Published and verified 2026-10-16, source commit cdf3f97b30b345bc6782424ad32a12cd94e762a9.
-GitHub Actions run 38931589413 passed verification and Pages deployment after the owner enabled Pages.
-Local/CI verification: 20 simulation tests, seven browser scenarios, typecheck and build. Hosted verification: all seven browser scenarios passed against the public URL (1.3 minutes). Public JavaScript, CSS and map assets match the verified production build by SHA-256.
-Features: 2012 regional campaign, TUR/IRN/SYR, province movement/combat/supply, negotiated crises/aid/ceasefire, fiscal policies/investment, save/import/export. Context and deliberate limits are in FIRST_BUILD.md and VERIFICATION.md.
-Next work should come from player feedback; no unresolved release blocker. Read this file first, then only context relevant to the change.
+Country-first revision 1.1.0, 2026-10-16. Local checks complete; publishing pending.
+
+Read REDESIGN.md and VICTORIA3_RESEARCH.md before the original scope. The user's latest instruction supersedes HOI4-style army interactions.
+
+- Province/army bounding-box focus removed; SVG keyboard focus follows shape strokes.
+- Country clicks open dossiers and diplomatic actions immediately.
+- National construction/production, four-good market and real-surplus trade, household living conditions, interest groups/government, reforms, institutions, research and decisions are connected.
+- Warfare uses commander-managed deployments and advance/defend/standby stances; manual army orders are not exposed in UI.
+- New decisions and incoming proposals pause the worker. AI cannot accept on behalf of a human recipient.
+- Earlier saves migrate; map IDs unchanged.
+
+Verification: 33 model tests passed, including six 400-day campaigns; nine browser scenarios passed locally (eight main journeys plus new-decision autopause). Typecheck and build passed. Screenshots inspected for country highlight/dossier, market, politics, construction, fronts and compact layout.
+
+Next: publish to main, wait for CI/Pages, run the revised hosted browser suite and update release evidence. Current live URL: https://kuzeyozturac.github.io/grandstrategyweb/ (previous build until publication).

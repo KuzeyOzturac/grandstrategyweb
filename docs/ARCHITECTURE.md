@@ -5,3 +5,7 @@ React + TypeScript + Vite. SVG atlas rendered with d3-geo; modest regional polyg
 Each command returns state plus a user-facing result. Illegal orders do not mutate resources. Same commands for AI/player. UTC integer days from 2012-01-01; PRNG state saved. No wall clock in model. Simulation speed changes scheduler only. One day / 5, 2, or 0.7 seconds; pauses for player decisions, not automatically for all events.
 Saves: versioned envelope plus scenario/map signature, structural and referential validation; reject corrupt or incompatible files with an error. localStorage autosave every 10 days and on manual save, import/export JSON. Storage failure remains visible. Worker serializes commands in message order.
 Tests: Vitest headless model + Playwright real browser against built preview. CI runs typecheck, unit/integration tests, build, browser tests, then Pages deployment. No deployment on failed verification.
+
+## Country-first revision
+
+`src/society.ts` owns serializable national-management rules, `src/CommandPanel.tsx` renders dossiers/market/production/politics/fronts. `App.tsx` owns map and navigation; `engine.ts` remains the command gateway and combat model. `worker.ts` pauses for new player decisions and incoming plays. SVG geometry gets shape-specific focus strokes instead of native rectangular outlines. See NATIONAL_SYSTEMS.md.

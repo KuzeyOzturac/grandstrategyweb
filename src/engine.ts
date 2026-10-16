@@ -1,3 +1,10 @@
+import {
+  ensureSociety,
+  societyTick,
+  societyCommand,
+  validateSociety,
+  type Society,
+} from "./society";
 import { META, name, type MapData } from "./scenario";
 export type Country = {
   id: string;
@@ -45,6 +52,7 @@ export type Army = {
   front: string | null;
   progress: number;
   retreats: number;
+  manualUntil?: number;
 };
 export type Crisis = {
   id: string;
@@ -56,6 +64,7 @@ export type Crisis = {
   deadline: number;
   status: "negotiating" | "agreed" | "war" | "backdown" | "rejected";
   supporters: string[];
+  obligation?: boolean;
 };
 export type Treaty = {
   a: string;
@@ -71,6 +80,7 @@ export type Event = {
 };
 export type State = {
   version: 1;
+  society?: Record<string, Society>;
   mapKey: string;
   seed: number;
   day: number;
@@ -125,6 +135,8 @@ export function relation(s: State, a: string, b: string) {
   if (mutual(s, a, b, "trade")) n += 15;
   if (mutual(s, a, b, "sanction")) n -= 30;
   if (atWar(s, a, b)) n -= 80;
+  n +=
+    (s.society?.[a]?.relations[b] ?? 0) + (s.society?.[b]?.relations[a] ?? 0);
   return clamp(n, -100, 100);
 }
 export function createState(
@@ -309,6 +321,8 @@ export function createState(
     "Scenario values and control pockets are gameplay approximations. See the scenario dossier.",
   );
   updateSupply(s, map);
+  ensureSociety(s);
+  societyTick(s, map);
   return s;
 }
 export function canEnter(
@@ -401,7 +415,10 @@ export function updateSupply(s: State, map: MapData) {
               p.depot * 12 -
               (100 - p.infra + p.damage) * 0.35 -
               (c.fuel < 10 ? 35 : 0) -
-              (c.equipment < 10 ? 25 : 0),
+              (c.equipment < 10 ? 25 : 0) +
+              (s.society?.[a.country]?.research.completed.includes("logistics")
+                ? 10
+                : 0),
           );
   }
 }
@@ -455,6 +472,12 @@ export function acceptance(s: State, c: Crisis) {
     });
   if (c.demand === "withdrawal")
     reasons.push({ label: "Territorial concession", value: -25 });
+  if (s.society?.[c.from]?.infamy)
+    reasons.push({
+      label: "International reputation",
+      value: -Math.floor(s.society[c.from].infamy * 0.4),
+    });
+  if (c.obligation) reasons.push({ label: "Promised obligation", value: 20 });
   return { score: reasons.reduce((a, r) => a + r.value, 0), reasons };
 }
 const addTreaty = (
@@ -488,6 +511,7 @@ function war(s: State, a: string, b: string) {
   if (atWar(s, a, b)) return;
   s.wars.push([a, b]);
   s.escalation = clamp(s.escalation + 14);
+  if (s.society?.[a]) s.society[a].infamy += 12;
   log(s, `${name(a)} and ${name(b)} are at war.`, "military");
   for (const t of [...s.treaties])
     if (
@@ -523,7 +547,31 @@ export function command(
   if (!c) return fail("Unknown country.");
   if (external && (s.observer || s.defeated) && !["observe"].includes(cmd.type))
     return fail("Observer mode: national orders are disabled.");
+  const national = societyCommand(s, map, cmd, actor);
+  if (national) return national;
   switch (cmd.type) {
+    case "obligation": {
+      const cr = s.crises.find(
+        (x) =>
+          x.id === cmd.id && x.from === actor && x.status === "negotiating",
+      );
+      if (!cr) return fail("No active diplomatic play.");
+      if (
+        cmd.value &&
+        s.society &&
+        (s.society[actor].obligations.includes(cr.to) ||
+          s.society[actor].obligations.length >= 6)
+      )
+        return fail(
+          "An obligation is already owed or influence commitments are full.",
+        );
+      cr.obligation = !!cmd.value;
+      return ok(
+        cr.obligation
+          ? "An obligation is offered if the agreement succeeds."
+          : "Obligation withdrawn.",
+      );
+    }
     case "policy": {
       if (!["tax", "defence", "mobilized", "air"].includes(cmd.key))
         return fail("Unknown policy.");
@@ -561,6 +609,7 @@ export function command(
       const a = s.armies.find((a) => a.id === cmd.army && a.country === actor);
       if (!a) return fail("Select one of your armies.");
       if (cmd.stance === "hold") {
+        a.manualUntil = s.day + 30;
         a.objective = null;
         a.stance = "hold";
         a.progress = 0;
@@ -588,6 +637,7 @@ export function command(
         return fail(
           "No legal route. Negotiate access or resolve the crisis before crossing a border.",
         );
+      a.manualUntil = cmd.automatic ? 0 : s.day + 30;
       a.objective = target.id;
       a.stance = cmd.stance;
       a.progress = 0;
@@ -755,12 +805,16 @@ export function command(
         return fail(
           "Target will refuse. Improve compensation or obtain backing.",
         );
+      if (cr.to === s.player && !s.observer && actor !== s.player)
+        return fail("Awaiting the player’s explicit response.");
       const payer = s.countries[cr.from];
       if (payer.treasury < cr.offer)
         return fail("Proposer can no longer afford compensation.");
       payer.treasury -= cr.offer;
       s.countries[cr.to].treasury += cr.offer;
       cr.status = "agreed";
+      if (cr.obligation && s.society)
+        s.society[cr.from].obligations.push(cr.to);
       if (cr.demand === "ceasefire") {
         if (atWar(s, cr.from, cr.to)) peace(s, cr.from, cr.to);
         else if (["SYR", "OPP"].includes(cr.to)) peace(s, "SYR", "OPP");
@@ -1119,33 +1173,116 @@ function ai(s: State, map: MapData) {
           command(s, map, { type: "aid", to }, c.id);
       }
     }
-    for (const a of s.armies.filter(
-      (a) => a.country === c.id && !a.objective && a.org > 45,
-    )) {
-      const candidates = Object.values(s.provinces).filter((p) =>
-        atWar(s, a.country, p.controller),
+  }
+  if (
+    s.day > 0 &&
+    s.day % 42 === 0 &&
+    !s.observer &&
+    !s.crises.some(
+      (cr) =>
+        cr.status === "negotiating" && [cr.from, cr.to].includes(s.player),
+    )
+  ) {
+    const proposer =
+      s.player === "SYR" ? "IRN" : s.player === "IRN" ? "IRQ" : "IRQ";
+    command(
+      s,
+      map,
+      { type: "crisis", to: s.player, demand: "access", offer: 60 },
+      proposer,
+    );
+  }
+}
+export function frontSummary(s: State, a: string, b: string) {
+  const own = s.armies.filter((x) => x.country === a),
+    enemy = s.armies.filter((x) => x.country === b);
+  return {
+    forces: own.reduce((v, x) => v + x.strength, 0),
+    enemy: enemy.reduce((v, x) => v + x.strength, 0),
+    readiness: own.length ? own.reduce((v, x) => v + x.org, 0) / own.length : 0,
+    supply: own.length ? own.reduce((v, x) => v + x.supply, 0) / own.length : 0,
+    posture: s.society?.[a]?.postures[b] ?? "advance",
+  };
+}
+export function strategicDeploy(s: State, map: MapData) {
+  ensureSociety(s);
+  for (const a of s.armies) {
+    if ((a.manualUntil ?? 0) > s.day) continue;
+    const enemies = s.wars
+      .filter((w) => w.includes(a.country))
+      .map((w) => w.find((x) => x !== a.country)!);
+    if (!enemies.length) {
+      if (a.objective && s.provinces[a.objective]?.controller !== a.country) {
+        a.objective = null;
+        a.stance = "hold";
+      }
+      continue;
+    }
+    const ownArmies = s.armies.filter((x) => x.country === a.country);
+    const enemy = enemies[ownArmies.indexOf(a) % enemies.length],
+      posture = s.society![a.country].postures[enemy] ?? "advance";
+    if (posture === "standby" || posture === "defend") {
+      if (a.stance === "advance") {
+        a.objective = null;
+        a.stance = "hold";
+      }
+      if (posture === "standby") continue;
+      const border = Object.values(s.provinces).filter(
+        (p) =>
+          p.controller === a.country &&
+          map.adjacency[p.id].some((n) => s.provinces[n].controller === enemy),
       );
-      const options = candidates
-        .map((p) => ({
-          p,
-          path: path(s, map, a.province, p.id, a.country, true),
-        }))
+      if (border.some((p) => p.id === a.province)) continue;
+      const choices = border
+        .map((p) => ({ p, path: path(s, map, a.province, p.id, a.country) }))
         .filter((v) => v.path.length)
-        .sort((a, b) => a.path.length - b.path.length);
-      if (options.length)
+        .sort((x, y) => x.path.length - y.path.length);
+      if (choices.length && !a.objective)
         command(
           s,
           map,
           {
             type: "order",
             army: a.id,
-            province: options[0].p.id,
-            stance: "advance",
+            province: choices[0].p.id,
+            stance: "move",
+            automatic: true,
           },
-          c.id,
+          a.country,
         );
+      continue;
     }
+    if (a.objective || a.org < 40) continue;
+    const opts = Object.values(s.provinces)
+      .filter((p) => p.controller === enemy)
+      .map((p) => ({
+        p,
+        path: path(s, map, a.province, p.id, a.country, true),
+      }))
+      .filter((v) => v.path.length)
+      .sort((x, y) => x.path.length - y.path.length);
+    if (opts.length)
+      command(
+        s,
+        map,
+        {
+          type: "order",
+          army: a.id,
+          province: opts[0].p.id,
+          stance: "advance",
+          automatic: true,
+        },
+        a.country,
+      );
   }
+}
+export function crisisPhase(s: State, c: Crisis) {
+  const elapsed = s.day - c.day;
+  return elapsed < 3
+    ? "Opening demands"
+    : elapsed < 10
+      ? "Diplomatic bargaining"
+      : "Final countdown";
 }
 export function tick(s: State, map: MapData, days = 1) {
   for (let i = 0; i < days; i++) {
@@ -1153,6 +1290,8 @@ export function tick(s: State, map: MapData, days = 1) {
     s.treaties = s.treaties.filter((t) => t.until > s.day);
     economy(s);
     ai(s, map);
+    societyTick(s, map);
+    strategicDeploy(s, map);
     armies(s, map);
     for (const a of s.aid) {
       a.days--;
@@ -1184,6 +1323,7 @@ export function tick(s: State, map: MapData, days = 1) {
       (c) => c.status === "negotiating" && c.deadline <= s.day,
     )) {
       if (
+        (cr.to !== s.player || s.observer || cr.from === s.player) &&
         acceptance(s, cr).score >= 0 &&
         s.countries[cr.from].treasury >= cr.offer
       )
@@ -1390,6 +1530,7 @@ export function validateState(input: unknown, map: MapData): State {
     typeof s.defeated !== "boolean"
   )
     throw Error("Invalid campaign metadata.");
+  validateSociety(s);
   return s;
 }
 export const serialize = (s: State) =>

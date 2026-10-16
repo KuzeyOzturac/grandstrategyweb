@@ -1,3 +1,7 @@
+# Current direction
+
+Country-first revision supersedes the army interaction contract below. Read REDESIGN.md and VICTORIA3_RESEARCH.md first. The original build contract is retained as history.
+
 # First build contract
 
 Player countries: Türkiye, Iran, Syrian government. Syrian opposition is an explicitly aggregated AI actor. Other regional countries participate through budgets, relations, access and crises; USA/Russia act as external guarantors. No later factions spawn on historical dates.

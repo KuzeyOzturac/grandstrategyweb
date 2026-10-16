@@ -18,7 +18,24 @@ function schedule() {
   if (speed && state && (!state.defeated || state.observer)) {
     timer = setTimeout(() => {
       try {
+        const beforeDecision = state!.society?.[state!.player]?.decision?.id;
+        const beforePlays = state!.crises
+          .filter(
+            (cr) => cr.status === "negotiating" && cr.to === state!.player,
+          )
+          .map((cr) => cr.id);
         tick(state!, map);
+        const afterDecision = state!.society?.[state!.player]?.decision?.id;
+        if (
+          (afterDecision !== undefined && afterDecision !== beforeDecision) ||
+          state!.crises.some(
+            (cr) =>
+              cr.status === "negotiating" &&
+              cr.to === state!.player &&
+              !beforePlays.includes(cr.id),
+          )
+        )
+          speed = 0;
         send({
           autosave: state!.day % 10 === 0 ? serialize(state!) : undefined,
         });
@@ -27,7 +44,7 @@ function schedule() {
         speed = 0;
         send({ error: String(e) });
       }
-    }, [0, 5000, 2000, 700][speed]);
+    }, [0, 2000, 700, 200][speed]);
   }
 }
 onmessage = ({ data: d }) => {

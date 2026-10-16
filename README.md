@@ -15,7 +15,9 @@ npm run dev
 
 Open the printed URL with `/grandstrategyweb/`. Build with `npm run build`; preview with `npm run preview`.
 
-Space pauses; 1–3 change speed. Drag/scroll the map. Select an army under Armed forces, choose an order, then select its destination. Friendly movement needs military access; attacks need war. Open a compensated diplomatic crisis for access or ceasefire. Use Journal for local saves or JSON export/import. Autosave every 10 simulated days.
+Click a country for its dossier and diplomatic actions. Click an owned state to choose a construction location. Production manages facilities and the national queue; Market shows shortages and trade routes; Politics contains interest groups, reforms and research. Military fronts offers advance/defend/standby while commanders manage deployments. Space pauses; 1–3 change speed (2 / 0.7 / 0.2 seconds per game day). New decisions and incoming proposals pause the clock. Save/export/import under Journal; older saves are migrated.
+
+The [Victoria 3 research matrix](docs/VICTORIA3_RESEARCH.md) records the official sources, adaptations and remaining depth. [REDESIGN.md](docs/REDESIGN.md) supersedes the original army UI plan. This is an aggregate national-management game, not a complete pop-level economic simulation.
 
 ## Verification
 
