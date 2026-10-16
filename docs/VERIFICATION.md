@@ -1,10 +1,10 @@
-# Revision1.2.0 — laws and diplomatic plays
+# Revision 1.2.0 — laws and diplomatic plays
 
-2026-10-16: final `npm run verify` passed locally: TypeScript,42 model/integration tests, production build and11 Chromium browser scenarios (21.5 seconds). Existing six400-day campaigns still pass. `git diff --check` clean. Screenshots of law catalogue and war settlement inspected at1440×960; existing country shape selection and1100px layout tests pass.
+2026-10-16: final `npm run verify` passed locally: TypeScript, 42 model/integration tests, production build and 11 Chromium browser scenarios (21.5 seconds). Existing six 400-day campaigns still pass. `git diff --check` clean. Screenshots of law catalogue and war settlement inspected at 1440×960; existing country shape selection and 1100px layout tests pass.
 
 New model coverage:16 exclusive groups/48 distinct effect combinations; checkpoint probabilities; low-legitimacy pause; three-setback failure; cancellation cooldown/radicals; migration retaining old reforms; duplicate-policy rejection; reparations cash/debt flow;180-day arms restrictions/expiry; counter-demands; primary-only backdown; countdown command rejection without mutation; opposing coalitions; conquest-based settlement leverage; primary/secondary settlement enforcement; duplicate-free demand promotion; mediation closes play war and coalition hostilities. Browser additions exercise policy category/selector/odds/cancellation and war aims/backing/escalation/concession through the actual worker UI.
 
-Earlier tests were updated where the rules intentionally changed: reform passage uses fixed checkpoint seeds rather than assuming all bills inevitably pass; research respects the new institutional modifiers. Final source was not changed after this verification run. CI deployment and hosted verification pending.
+Earlier tests were updated where the rules intentionally changed: reform passage uses fixed checkpoint seeds rather than assuming all bills inevitably pass; research respects the new institutional modifiers. Final source was not changed after this verification run. GitHub Actions run 38939825717 passed verification and Pages deployment for gameplay commit 81c84500cbcfadb03fad8fd90e165cf12207816f. All 11 browser journeys passed against the public site in 2.1 minutes. Served JavaScript matches the tested build by SHA-256. Hosted tests used the documented controlled proxy options.
 
 ---
 
