@@ -24,7 +24,7 @@ npx playwright install chromium --only-shell
 npm run verify
 ```
 
-Typecheck, seeded engine/integration tests, production build and browser scenarios. See [verification evidence](docs/VERIFICATION.md). GitHub Actions verifies before deploying Pages. No API keys, backend or paid services.
+Typecheck, seeded engine/integration tests, production build and browser scenarios. See [verification evidence](docs/VERIFICATION.md). GitHub Actions verifies before deploying Pages. One-time repository Pages setup is documented in [deployment instructions](docs/DEPLOYMENT.md). No API keys, backend or paid services.
 
 ## Context for future coding
 

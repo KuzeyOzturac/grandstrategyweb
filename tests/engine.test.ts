@@ -317,6 +317,20 @@ describe("Economy and aid", () => {
     expect(b.countries.TUR.support).toBeLessThan(a.countries.TUR.support);
   });
 });
+describe("Resource boundaries", () => {
+  it("never spends more equipment than remains during mobilized reinforcement", () => {
+    const s = fresh();
+    s.countries.TUR.equipment = 0.21;
+    s.countries.TUR.defence = 10;
+    s.countries.TUR.mobilized = true;
+    for (const a of ["IRN", "SYR", "IRQ", "SAU"])
+      s.treaties.push({ a, b: "TUR", kind: "sanction", until: 90 });
+    tick(s, map, 1);
+    expect(s.countries.TUR.equipment).toBeGreaterThanOrEqual(0);
+    expect(() => validateState(s, map)).not.toThrow();
+  });
+});
+
 describe("Saves and sustained simulation", () => {
   it("roundtrips exact state and produces identical continuation", () => {
     const s = fresh();

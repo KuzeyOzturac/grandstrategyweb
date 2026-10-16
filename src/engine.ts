@@ -933,7 +933,7 @@ function armies(s: State, map: MapData) {
     a.org = clamp(a.org + (a.supply > 40 ? 1.1 : -2.2));
     if (a.supply < 25) a.strength = clamp(a.strength - 0.3);
     if (a.supply > 50 && a.strength < 90 && c.equipment > 0.2) {
-      const gain = c.mobilized ? 0.3 : 0.15;
+      const gain = Math.min(c.equipment, c.mobilized ? 0.3 : 0.15);
       a.strength += gain;
       c.equipment -= gain;
     }
