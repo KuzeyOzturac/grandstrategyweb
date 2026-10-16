@@ -8,6 +8,10 @@ export default defineConfig({
     baseURL: process.env.LIVE_URL ?? "http://127.0.0.1:4173/grandstrategyweb/",
     viewport: { width: 1440, height: 960 },
     headless: true,
+    ignoreHTTPSErrors: process.env.PLAYWRIGHT_IGNORE_HTTPS_ERRORS === "1",
+    proxy: process.env.PLAYWRIGHT_PROXY_SERVER
+      ? { server: process.env.PLAYWRIGHT_PROXY_SERVER }
+      : undefined,
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
   },

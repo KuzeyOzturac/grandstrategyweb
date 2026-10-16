@@ -16,9 +16,15 @@ The browser suite runs against the production build via Vite preview on loopback
 - Keyboard test was corrected to click map background rather than the intentionally pointer-transparent map heading. Production pointer behavior was appropriate; no forced heading click added.
 - Aid negative test corrected: open ports legitimately permit TUR→IRN sea aid. Uses a recipient without a regional route instead.
 
-## Deployment
+## Deployment and hosted verification, 2026-10-16
 
-Source pushed to main. GitHub Actions first verify job passed (19 model + seven browser tests); deployment failed at configure-pages because the site is not enabled and the integration lacks permission to enable it. Latest local run passes 20 model + seven browser tests after a reinforcement stock-boundary fix. Hosted tests remain pending. See DEPLOYMENT.md for the exact one-time owner setup; do not claim the site is live. CI blocks deployment when typecheck, model tests, build or browser tests fail.
+Published: https://kuzeyozturac.github.io/grandstrategyweb/
+Source: cdf3f97b30b345bc6782424ad32a12cd94e762a9.
+GitHub Actions run 38931589413: verification and deployment both succeeded. Owner enabled Pages after the initial configure-pages permission failure.
+All seven Playwright scenarios passed against the public URL (1.3 minutes): three governments and worker ticking, compensated access/investment/local restore, failed negotiation/escalation/army objective/halt, corrupt import, map overlays/world/pause/layout, aid/ceasefire/valid import, introduction/political map. First scenario also asserts no page JavaScript errors.
+Public index JS, CSS, world.json, provinces.json and manifest.json match the local production build by SHA-256. HTTP 200 confirmed. Hosted screenshots rendered successfully.
+Network verification initially failed with direct Chromium connections and then an untrusted intercepting proxy certificate. Optional proxy and explicit test-only certificate handling enabled the live suite; no game/hosting TLS behavior changed. First completed proxied attempt lost its tunnel after one successful test; rerunning with the command held open produced seven passes. These were environment transport failures, not accepted application test failures.
+CI blocks deployment on failed typecheck, model tests, build or browser checks.
 
 ## Known limits
 
