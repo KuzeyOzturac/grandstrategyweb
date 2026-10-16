@@ -1,0 +1,7 @@
+# Architecture
+
+React + TypeScript + Vite. SVG atlas rendered with d3-geo; modest regional polygon count favors testable accessible vector interaction over a GPU dependency for v1. Full-world overview and region zoom share the map. A future renderer can consume the same model.
+`scenario.ts`: map types and scenario constants. `engine.ts`: pure serializable state, commands, seeded AI, daily tick, validation. `worker.ts`: owns state and real-time scheduler. `App.tsx`: renders snapshots and submits commands. CSS/Geist assets bundled locally. No network requests after static assets load.
+Each command returns state plus a user-facing result. Illegal orders do not mutate resources. Same commands for AI/player. UTC integer days from 2012-01-01; PRNG state saved. No wall clock in model. Simulation speed changes scheduler only. One day / 5, 2, or 0.7 seconds; pauses for player decisions, not automatically for all events.
+Saves: versioned envelope plus scenario/map signature, structural and referential validation; reject corrupt or incompatible files with an error. localStorage autosave every 10 days and on manual save, import/export JSON. Storage failure remains visible. Worker serializes commands in message order.
+Tests: Vitest headless model + Playwright real browser against built preview. CI runs typecheck, unit/integration tests, build, browser tests, then Pages deployment. No deployment on failed verification.
