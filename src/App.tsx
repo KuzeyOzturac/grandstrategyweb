@@ -29,7 +29,8 @@ export default function App() {
 
   useEffect(() => {
     Promise.all(["world", "states"].map(async (file) => {
-      const response = await fetch(`${import.meta.env.BASE_URL}data/${file}.json`);
+      const version = file === "states" ? "?v=f4c5b9a9" : "";
+      const response = await fetch(`${import.meta.env.BASE_URL}data/${file}.json${version}`);
       if (!response.ok) throw new Error(`Could not load ${file} boundaries`);
       return (await response.json()) as Collection;
     })).then(([world, regions]) => { setCountries(world.features); setStates(regions.features); })
