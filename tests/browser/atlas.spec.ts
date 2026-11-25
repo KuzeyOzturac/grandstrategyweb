@@ -10,3 +10,20 @@ test('searches countries and shows their administrative regions', async ({ page 
   await page.getByRole('button', { name: 'Ontario' }).click();
   await expect(page.getByText('Owned by Canada')).toBeVisible();
 });
+
+test('zooming in keeps state polygons local to their regions', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByText('Loading world map…')).toBeHidden();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  for (const label of ['Ontario — Canada', 'Shaviyani Atoll — Maldives']) {
+    const shape = page.locator('path.state').filter({ has: page.locator('title', { hasText: label }) });
+    await expect(shape).toHaveCount(1);
+    const box = await shape.evaluate((element) => {
+      const bounds = (element as SVGGraphicsElement).getBBox();
+      return { width: bounds.width, height: bounds.height };
+    });
+    expect(box.width).toBeLessThan(500);
+    expect(box.height).toBeLessThan(300);
+  }
+});

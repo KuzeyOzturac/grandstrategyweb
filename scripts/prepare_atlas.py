@@ -7,6 +7,7 @@ import json
 import urllib.request
 from pathlib import Path
 from shapely.geometry import shape, mapping
+from shapely import orient_polygons
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT.parent / 'admin1.geojson'
@@ -19,14 +20,17 @@ names = {f['id']: f['properties']['name'] for f in world['features']}
 
 def round_coords(value):
     if isinstance(value, (float, int)):
-        return round(value, 4)
+        return round(value, 6)
     return [round_coords(x) for x in value]
 
 features = []
 for feature in source['features']:
     props = feature['properties']
     country = props['adm0_a3']
-    geometry = shape(feature['geometry']).simplify(.035, preserve_topology=True)
+    geometry = orient_polygons(
+        shape(feature['geometry']).simplify(.035, preserve_topology=True),
+        exterior_cw=True,
+    )
     if geometry.is_empty:
         continue
     region = props.get('adm1_code') or props.get('iso_3166_2')
