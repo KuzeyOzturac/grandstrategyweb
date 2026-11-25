@@ -41,6 +41,8 @@ export default function App() {
   const selected = selectedCountry ? countryById.get(selectedCountry) : null;
   const region = selectedState ? stateById.get(selectedState) : null;
   const ownedStates = useMemo(() => states.filter((state) => state.properties.country === selectedCountry), [states, selectedCountry]);
+  const countryShapes = useMemo(() => countries.map((country) => <path key={country.id} d={path(country as any) ?? ""} fill={color(country.id)} className={`country ${selectedCountry === country.id ? "selected" : ""}`} onClick={() => { if (!pointer.current?.moved) selectCountry(country.id); }}><title>{country.properties.name}</title></path>), [countries, selectedCountry]);
+  const stateShapes = useMemo(() => states.map((state) => <path key={state.id} d={path(state as any) ?? ""} fill={color(state.properties.country ?? "")} className={`state ${selectedState === state.id ? "selected" : ""}`} onClick={() => { if (!pointer.current?.moved) selectState(state); }}><title>{state.properties.name} — {state.properties.countryName}</title></path>), [states, selectedState]);
   const results = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
     if (term.length < 2) return [];
@@ -101,8 +103,8 @@ export default function App() {
           onPointerUp={() => { setTimeout(() => { pointer.current = null; }, 0); }}>
           <rect width={WIDTH} height={HEIGHT} className="ocean" />
           <g transform={`translate(${pan.x} ${pan.y}) scale(${zoom})`}>
-            {countries.map((country) => <path key={country.id} d={path(country as any) ?? ""} fill={color(country.id)} className={`country ${selectedCountry === country.id ? "selected" : ""}`} onClick={() => { if (!pointer.current?.moved) selectCountry(country.id); }}><title>{country.properties.name}</title></path>)}
-            {showStates && zoom >= 1.8 && states.map((state) => <path key={state.id} d={path(state as any) ?? ""} fill={color(state.properties.country ?? "")} className={`state ${selectedState === state.id ? "selected" : ""}`} onClick={() => { if (!pointer.current?.moved) selectState(state); }}><title>{state.properties.name} — {state.properties.countryName}</title></path>)}
+            {countryShapes}
+            {showStates && zoom >= 1.8 && stateShapes}
           </g>
         </svg>}
         <div className="map-controls"><button aria-label="Zoom in" onClick={() => changeZoom(zoom * 1.5)}>+</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom / 1.5)}>−</button><button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}>Reset view</button></div>
