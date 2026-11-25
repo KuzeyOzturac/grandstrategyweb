@@ -12,7 +12,9 @@ test('searches countries and shows their administrative regions', async ({ page 
 });
 
 test('zooming in keeps state polygons local to their regions', async ({ page }) => {
+  const stateRequest = page.waitForRequest((request) => request.url().includes('/data/states.json'));
   await page.goto('/');
+  expect((await stateRequest).url()).toContain('?v=f4c5b9a9');
   await expect(page.getByText('Loading world map…')).toBeHidden();
   await page.getByRole('button', { name: 'Zoom in' }).click();
   await page.getByRole('button', { name: 'Zoom in' }).click();
